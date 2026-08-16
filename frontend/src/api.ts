@@ -126,9 +126,10 @@ export function ratingMeta(v: number) {
   return RATINGS.find((r) => r.v === v) ?? RATINGS[2];
 }
 
-export const CATEGORY_ORDER = ['warzywa', 'owoce', 'kasze i zboża', 'mięso i ryby', 'nabiał', 'inne'];
+export const CATEGORY_ORDER = ['alergeny', 'warzywa', 'owoce', 'kasze i zboża', 'mięso i ryby', 'nabiał', 'inne'];
 
 export const CATEGORIES: Record<string, { label: string; emoji: string }> = {
+  'alergeny': { label: 'Alergeny', emoji: '⚠️' },
   'warzywa': { label: 'Warzywa', emoji: '🥕' },
   'owoce': { label: 'Owoce', emoji: '🍎' },
   'kasze i zboża': { label: 'Kasze i zboża', emoji: '🌾' },
@@ -156,6 +157,11 @@ const FOOD_EMOJI: Record<string, string> = {
   indyk: '🦃', kurczak: '🍗', cielęcina: '🥩', łosoś: '🐟', dorsz: '🐟',
   'żółtko jaja': '🥚',
   'jogurt naturalny': '🥛', twarożek: '🧀',
+  'mleko krowie (do picia)': '🥛',
+  'gluten (kasza manna)': '🌾',
+  'soja (tofu)': '🍶',
+  'orzeszki ziemne': '🥜', migdały: '🌰', 'orzechy laskowe': '🌰',
+  'sezam (tahini)': '🌱', 'jajko (całe)': '🥚', krewetki: '🦐',
   'oliwa z oliwek': '🫒', 'olej rzepakowy': '💧', 'siemię lniane': '🌰',
 };
 

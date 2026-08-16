@@ -174,7 +174,7 @@ func (h *FoodHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
+	name := strings.ToLower(strings.TrimSpace(req.Name))
 	if name == "" {
 		writeErr(w, http.StatusBadRequest, "name is required")
 		return
@@ -262,8 +262,12 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var prevTries int
-	if err := tx.QueryRow(`SELECT tries FROM rz_foods WHERE id = $1 AND user_id = $2`, id, uid).Scan(&prevTries); err == sql.ErrNoRows {
+	var prevTries, prevLastRating int
+	if err := tx.QueryRow(
+		`SELECT f.tries, COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0)
+		 FROM rz_foods f WHERE f.id = $1 AND f.user_id = $2`,
+		id, uid,
+	).Scan(&prevTries, &prevLastRating); err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "food not found")
 		return
 	} else if err != nil {
@@ -299,13 +303,20 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pushover notifications for the milestone moments.
+	// Pushover notifications for the milestone moments: first try,
+	// 15-try target reached, and — most importantly — a green last try that
+	// marks the food as OK without needing all 15 attempts.
 	if h.Notify != nil && h.Notify.Enabled() {
 		reaction := ratingEmoji(rating)
-		if prevTries == 0 {
+		wasOK := prevTries >= f.Target || prevLastRating >= 3
+		nowOK := f.Tries >= f.Target || f.LastRating >= 3
+		switch {
+		case prevTries == 0:
 			h.Notify.Send("🍽️ Nowe jedzenie", fmt.Sprintf("%s — pierwszy raz! (%s)", f.Name, reaction))
-		} else if f.Tries >= f.Target && prevTries < f.Target {
+		case f.Tries >= f.Target && prevTries < f.Target:
 			h.Notify.Send("🎉 Przetestowane!", fmt.Sprintf("%s ma %d prób (%s) — wiesz już, czy smakuje.", f.Name, f.Tries, reaction))
+		case !wasOK && nowOK:
+			h.Notify.Send("💚 Nowe OK!", fmt.Sprintf("%s — zjadł przy ostatniej próbie (%s), nie trzeba już czekać na 15 prób!", f.Name, reaction))
 		}
 	}
 
@@ -401,7 +412,7 @@ func (h *FoodHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name != nil {
-		name := strings.TrimSpace(*req.Name)
+		name := strings.ToLower(strings.TrimSpace(*req.Name))
 		if name == "" {
 			writeErr(w, http.StatusBadRequest, "name cannot be empty")
 			return

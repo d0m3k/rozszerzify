@@ -52,6 +52,9 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
           value={q}
           onInput={(e) => setQ((e.target as HTMLInputElement).value)}
           ref={inputRef}
+          autocapitalize="none"
+          autoComplete="off"
+          enterkeyhint="search"
           autoFocus
         />
       </div>

@@ -64,6 +64,8 @@ export function AddFoodPage({ onBack, onAdded }: Props) {
             onInput={(e) => setName((e.target as HTMLInputElement).value)}
             placeholder="np. kalarepa, amarantus…"
             ref={nameRef}
+            autocapitalize="none"
+            autoComplete="off"
             autoFocus
             required
           />

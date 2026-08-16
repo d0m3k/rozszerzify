@@ -26,6 +26,17 @@ import (
 // empty. Every entry starts at 0 tries — the parent fills in what the kid
 // has already tried.
 var starterFoods = []struct{ Name, Category string }{
+	// alergeny (wprowadzać pojedynczo, po jednym na kilka dni,
+	// w małych ilościach — najważniejsza kategoria)
+	{"jajko (całe)", "alergeny"},
+	{"orzeszki ziemne", "alergeny"},
+	{"migdały", "alergeny"},
+	{"orzechy laskowe", "alergeny"},
+	{"sezam (tahini)", "alergeny"},
+	{"mleko krowie (do picia)", "alergeny"},
+	{"gluten (kasza manna)", "alergeny"},
+	{"soja (tofu)", "alergeny"},
+	{"krewetki", "alergeny"},
 	// warzywa
 	{"marchewka", "warzywa"},
 	{"ziemniak", "warzywa"},
