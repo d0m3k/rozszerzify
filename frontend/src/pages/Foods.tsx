@@ -24,6 +24,10 @@ export function FoodsPage({ foods, stats, onOpenDetail, onPlus, onMinus }: Props
         {stats && (
           <>
             <div class="stat-chip">
+              <b>{stats.baby_age_months} mies. {stats.baby_age_days > 0 ? `${stats.baby_age_days} dn.` : ''}</b>
+              <span>wiek Krzyśka</span>
+            </div>
+            <div class="stat-chip">
               <b>{stats.days_since_start}</b>
               <span>dzień od startu</span>
             </div>
@@ -82,6 +86,7 @@ export function FoodsPage({ foods, stats, onOpenDetail, onPlus, onMinus }: Props
                     {f.tries >= f.target ? '🎉 cel' : `${f.tries}/${f.target} prób`}
                   </span>
                 </div>
+                {f.last_note && <div class="food-last-note">📝 {f.last_note}</div>}
               </div>
               <div class="food-actions">
                 <button

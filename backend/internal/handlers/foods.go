@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"rozszerzify/internal/config"
+	"rozszerzify/internal/notify"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -23,8 +25,9 @@ const (
 )
 
 type FoodHandler struct {
-	DB  *sql.DB
-	Cfg *config.Config
+	DB     *sql.DB
+	Cfg    *config.Config
+	Notify *notify.Notifier
 }
 
 type Food struct {
@@ -42,6 +45,10 @@ type Food struct {
 	RatingAvg   float64 `json:"rating_avg"`
 	RatingCount int     `json:"rating_count"`
 	RatingSum   int     `json:"rating_sum"`
+
+	// Note of the most recent try (per-serving note, more important than the
+	// food-level note for quick glances)
+	LastNote string `json:"last_note"`
 }
 
 type LogEntry struct {
@@ -68,12 +75,13 @@ func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 		`SELECT f.id, f.name, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
-		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0)
+		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
+		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), '')
 		 FROM rz_foods f
 		 WHERE f.id = $1 AND f.user_id = $2`,
 		id, userID,
 	).Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-		&f.RatingCount, &f.RatingAvg, &f.RatingSum)
+		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +96,8 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		`SELECT f.id, f.name, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
-		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0)
+		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
+		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), '')
 		 FROM rz_foods f
 		 WHERE f.user_id = $1
 		 ORDER BY f.id`,
@@ -105,7 +114,7 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var f Food
 		if err := rows.Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-			&f.RatingCount, &f.RatingAvg, &f.RatingSum); err != nil {
+			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote); err != nil {
 			log.Printf("[FOODS] scan: %v", err)
 			continue
 		}
@@ -236,8 +245,8 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var exists int
-	if err := tx.QueryRow(`SELECT 1 FROM rz_foods WHERE id = $1 AND user_id = $2`, id, uid).Scan(&exists); err == sql.ErrNoRows {
+	var prevTries int
+	if err := tx.QueryRow(`SELECT tries FROM rz_foods WHERE id = $1 AND user_id = $2`, id, uid).Scan(&prevTries); err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "food not found")
 		return
 	} else if err != nil {
@@ -272,6 +281,17 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+
+	// Pushover notifications for the milestone moments.
+	if h.Notify != nil && h.Notify.Enabled() {
+		reaction := ratingEmoji(rating)
+		if prevTries == 0 {
+			h.Notify.Send("🍽️ Nowe jedzenie", fmt.Sprintf("%s — pierwszy raz! (%s)", f.Name, reaction))
+		} else if f.Tries >= f.Target && prevTries < f.Target {
+			h.Notify.Send("🎉 Przetestowane!", fmt.Sprintf("%s ma %d prób (%s) — wiesz już, czy smakuje.", f.Name, f.Tries, reaction))
+		}
+	}
+
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -545,14 +565,59 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		days = 1
 	}
 
+	// Baby's age (calendar months + leftover days).
+	ageMonths, ageDays := ageMonthsDays(h.Cfg.BirthTime(), time.Now())
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"start_date":         h.Cfg.StartDate,
-		"days_since_start":   days,
-		"foods_total":        foodsTotal,
-		"foods_at_target":    atTarget,
-		"tries_total":        triesTotal,
-		"foods_tried_today":  triedToday,
+		"start_date":        h.Cfg.StartDate,
+		"days_since_start":  days,
+		"birth_date":        h.Cfg.BirthDate,
+		"baby_age_months":   ageMonths,
+		"baby_age_days":     ageDays,
+		"foods_total":       foodsTotal,
+		"foods_at_target":   atTarget,
+		"tries_total":       triesTotal,
+		"foods_tried_today": triedToday,
 	})
+}
+
+// ratingEmoji maps a 1–4 rating to a short emoji for notifications and labels.
+func ratingEmoji(r int) string {
+	switch r {
+	case 1:
+		return "😖"
+	case 2:
+		return "😐"
+	case 3:
+		return "🙂"
+	case 4:
+		return "🤩"
+	}
+	return "🙂"
+}
+
+// ageMonthsDays returns the calendar age as (months, days) between birth and now.
+func ageMonthsDays(birth, now time.Time) (int, int) {
+	if now.Before(birth) {
+		return 0, 0
+	}
+	months := (now.Year()-birth.Year())*12 + int(now.Month()) - int(birth.Month())
+	if now.Day() < birth.Day() {
+		months--
+	}
+	anchor := birth.AddDate(0, months, 0)
+	if anchor.After(now) {
+		anchor = birth.AddDate(0, months-1, 0)
+		months--
+	}
+	next := anchor.AddDate(0, 1, 0)
+	days := int(now.Sub(anchor).Hours() / 24)
+	monthLen := int(next.Sub(anchor).Hours() / 24)
+	if days >= monthLen {
+		months++
+		days = 0
+	}
+	return months, days
 }
 
 // normalizeCategory lowercases and trims a category, defaulting to "inne".

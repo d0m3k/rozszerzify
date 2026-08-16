@@ -12,6 +12,7 @@ import (
 	"rozszerzify/internal/db"
 	"rozszerzify/internal/handlers"
 	"rozszerzify/internal/middleware"
+	"rozszerzify/internal/notify"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -91,8 +92,15 @@ func main() {
 		}
 	}
 
+	notifier := notify.New(cfg.PushoverUserKey, cfg.PushoverAppToken)
+	if notifier.Enabled() {
+		log.Println("notify: Pushover ENABLED (first-try + target-reached alerts)")
+	} else {
+		log.Println("notify: Pushover not configured — notifications disabled")
+	}
+
 	authH := &handlers.AuthHandler{DB: conn, Cfg: cfg}
-	foodH := &handlers.FoodHandler{DB: conn, Cfg: cfg}
+	foodH := &handlers.FoodHandler{DB: conn, Cfg: cfg, Notify: notifier}
 
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)

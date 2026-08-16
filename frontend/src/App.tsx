@@ -5,10 +5,11 @@ import { LoginPage } from './pages/Login';
 import { FoodsPage } from './pages/Foods';
 import { FoodDetailPage } from './pages/FoodDetail';
 import { AddFoodPage } from './pages/AddFood';
+import { SearchPage } from './pages/Search';
 import { RankingPage } from './pages/Ranking';
 import { RatingSheet } from './components/RatingSheet';
 
-type Page = 'foods' | 'ranking' | 'add' | 'detail';
+type Page = 'foods' | 'ranking' | 'add' | 'search' | 'detail';
 
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(loadAuth);
@@ -46,14 +47,27 @@ export function App() {
     setAuth(null);
   }
 
-  async function handleTry(foodId: number, rating: number) {
+  async function handleTry(foodId: number, rating: number, note?: string) {
     try {
-      await api.tryFood(foodId, rating);
+      await api.tryFood(foodId, rating, note);
     } catch {
       /* network hiccup — sheet stays? no, close and let user retry */
     } finally {
       setSheetFor(null);
       refresh();
+    }
+  }
+
+  // Quick-add from search: create the food, then immediately open the rating
+  // sheet for it so the parent can log the first try in one more tap.
+  async function handleQuickAdd(name: string, category: string) {
+    try {
+      const created = await api.createFood({ name, category });
+      setSheetFor(created);
+      refresh();
+    } catch {
+      const existing = foods.find((f) => f.name.toLowerCase() === name.toLowerCase());
+      if (existing) setSheetFor(existing);
     }
   }
 
@@ -117,6 +131,15 @@ export function App() {
             onOpenDetail={(id) => { setSelId(id); setPage('detail'); }}
           />
         )}
+        {page === 'search' && (
+          <SearchPage
+            foods={foods}
+            onBack={() => setPage('foods')}
+            onPick={(f) => setSheetFor(f)}
+            onQuickAdd={handleQuickAdd}
+            onFullForm={() => setPage('add')}
+          />
+        )}
         {page === 'add' && (
           <AddFoodPage
             onBack={() => setPage('foods')}
@@ -140,7 +163,7 @@ export function App() {
           <span class="nav-icon">🍽️</span>
           <span>Jedzenie</span>
         </button>
-        <button class="nav-add" onClick={() => setPage('add')} aria-label="dodaj jedzenie">
+        <button class="nav-add" onClick={() => setPage('search')} aria-label="szybkie dodawanie / wyszukiwanie">
           +
         </button>
         <button class={page === 'ranking' ? 'nav-btn active' : 'nav-btn'} onClick={() => setPage('ranking')}>
@@ -152,7 +175,7 @@ export function App() {
       {sheetFor && (
         <RatingSheet
           foodName={sheetFor.name}
-          onSelect={(r) => handleTry(sheetFor.id, r)}
+          onSelect={(r, note) => handleTry(sheetFor.id, r, note)}
           onClose={() => setSheetFor(null)}
         />
       )}

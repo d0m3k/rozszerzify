@@ -1,15 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import {
-  Food,
-  LogEntry,
-  RATINGS,
-  api,
-  categoryEmoji,
-  categoryLabel,
-  fmtDateTime,
-  progressPct,
-  ratingMeta,
-} from '../api';
+import { Food, LogEntry, RATINGS, api, categoryLabel, fmtDateTime, foodEmoji, progressPct, ratingMeta } from '../api';
 
 interface Props {
   food: Food;
@@ -63,7 +53,7 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete
         </button>
         <div class="detail-title">
           <h2>
-            {categoryEmoji(food.category)} {food.name}
+            {foodEmoji(food.name, food.category)} {food.name}
           </h2>
           <span class="detail-cat">{categoryLabel(food.category)}</span>
         </div>
@@ -71,7 +61,7 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete
 
       <div class="detail-counter-card">
         <div class="detail-counter">
-          <button class="btn-minus btn-lg" onClick={onUntry} aria-label="cofnij próbę">
+          <button class="counter-btn counter-minus" onClick={onUntry} aria-label="cofnij próbę">
             −
           </button>
           <div class="counter-center">
@@ -80,8 +70,8 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete
               {food.tries >= food.target ? 'prób — cel osiągnięty! 🎉' : `prób z ${food.target}`}
             </div>
           </div>
-          <button class="btn-plus btn-lg" onClick={onPlus} aria-label="dodaj próbę">
-            <span class="btn-plus-plus">+1</span>
+          <button class="counter-btn counter-plus" onClick={onPlus} aria-label="dodaj próbę">
+            <span class="counter-plus-label">+1</span>
           </button>
         </div>
         <div class="progress-track progress-lg">

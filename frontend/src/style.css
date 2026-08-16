@@ -229,6 +229,14 @@ html, body {
 }
 .progress-fill.done { background: linear-gradient(90deg, var(--green), #9BDE6F); }
 .progress-label { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.food-last-note {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .food-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
@@ -264,7 +272,34 @@ html, body {
   flex-shrink: 0;
 }
 .btn-minus:active { background: #F4E9DE; }
-.btn-lg { width: 56px; height: 56px; font-size: 26px; min-width: 56px; }
+
+/* Big round counter buttons on the detail page (+1 / −) */
+.counter-btn {
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  border-radius: 999px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+.counter-btn:active { transform: scale(0.93); }
+.counter-minus {
+  background: #fff;
+  color: var(--muted);
+  border: 1.5px solid var(--border);
+  font-size: 28px;
+}
+.counter-plus {
+  background: linear-gradient(160deg, var(--teal), var(--teal-dark));
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  box-shadow: 0 3px 10px rgba(69, 181, 172, 0.35);
+}
 
 /* === Detail === */
 .detail-header { display: flex; align-items: center; gap: 12px; padding: 8px 0 12px; }
@@ -450,6 +485,7 @@ html, body {
 }
 .sheet-handle { width: 42px; height: 5px; border-radius: 999px; background: #D8C9BD; margin: 2px auto 12px; }
 .sheet-title { font-size: 17px; text-align: center; margin-bottom: 14px; font-weight: 600; }
+.sheet-note { margin-bottom: 10px; }
 .rating-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .rating-option {
   background: var(--card);
@@ -469,7 +505,44 @@ html, body {
 .rating-label { font-size: 13px; font-weight: 700; text-align: center; }
 .sheet-cancel { width: 100%; margin-top: 12px; }
 
-/* === Install prompt / update toast === */
+/* === Search (quick add/log) === */
+.search-bar { display: flex; gap: 10px; align-items: center; padding: 6px 0 12px; }
+.search-input { flex: 1; }
+.search-hint { padding: 22px 6px; line-height: 1.5; }
+.quick-add { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.quick-add-btn {
+  background: var(--peach);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 50px;
+  text-align: left;
+}
+.quick-add-btn:active { background: var(--peach-dark); }
+.chip-sm { padding: 8px 11px; min-height: 36px; font-size: 16px; }
+.link-btn { background: none; border: none; color: var(--teal-dark); font-size: 13px; cursor: pointer; align-self: flex-start; padding: 2px; }
+.search-results { display: flex; flex-direction: column; gap: 8px; }
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.search-row:active { transform: scale(0.99); }
+.search-emoji { font-size: 22px; }
+.search-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.search-name { font-weight: 700; font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-cat { font-size: 12px; color: var(--muted); }
+.search-tries { font-size: 13px; font-weight: 700; color: var(--teal-dark); white-space: nowrap; }
 .install-prompt {
   position: fixed;
   bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px);

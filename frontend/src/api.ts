@@ -13,11 +13,15 @@ export interface Food {
   rating_avg: number;
   rating_count: number;
   rating_sum: number;
+  last_note: string;
 }
 
 export interface Stats {
   start_date: string;
   days_since_start: number;
+  birth_date: string;
+  baby_age_months: number;
+  baby_age_days: number;
   foods_total: number;
   foods_at_target: number;
   tries_total: number;
@@ -131,6 +135,25 @@ export function categoryLabel(cat: string): string {
 }
 export function categoryEmoji(cat: string): string {
   return CATEGORIES[cat]?.emoji ?? '✨';
+}
+
+// Per-food emoji, falling back to the category emoji.
+const FOOD_EMOJI: Record<string, string> = {
+  marchewka: '🥕', ziemniak: '🥔', brokuł: '🥦', kalafior: '🥦', dynia: '🎃',
+  cukinia: '🥒', batat: '🍠', 'groszek zielony': '🟢', burak: '🌱', pietruszka: '🌿',
+  awokado: '🥑',
+  jabłko: '🍎', gruszka: '🍐', banan: '🍌', morela: '🍑', brzoskwinia: '🍑',
+  śliwka: '🟣', malina: '🍓', borówka: '🫐', mango: '🥭',
+  'kasza jaglana': '🌾', 'kaszka ryżowa': '🍚', 'kaszka kukurydziana': '🌽',
+  'płatki owsiane': '🥣',
+  indyk: '🦃', kurczak: '🍗', cielęcina: '🥩', łosoś: '🐟', dorsz: '🐟',
+  'żółtko jaja': '🥚',
+  'jogurt naturalny': '🥛', twarożek: '🧀',
+  'oliwa z oliwek': '🫒', 'olej rzepakowy': '💧', 'siemię lniane': '🌰',
+};
+
+export function foodEmoji(name: string, category: string): string {
+  return FOOD_EMOJI[name.toLowerCase()] ?? categoryEmoji(category);
 }
 
 export function sortCategories(list: string[]): string[] {
