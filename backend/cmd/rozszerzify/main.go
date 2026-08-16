@@ -118,7 +118,7 @@ func main() {
 		log.Println("notify: Pushover not configured — notifications disabled")
 	}
 
-	authH := &handlers.AuthHandler{DB: conn, Cfg: cfg}
+	authH := &handlers.AuthHandler{DB: conn, Cfg: cfg, Notify: notifier}
 	foodH := &handlers.FoodHandler{DB: conn, Cfg: cfg, Notify: notifier}
 
 	r := chi.NewRouter()
