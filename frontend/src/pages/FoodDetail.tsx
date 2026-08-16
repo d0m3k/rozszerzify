@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Food, LogEntry, RATINGS, api, categoryLabel, fmtDateTime, foodEmoji, progressPct, ratingMeta } from '../api';
+import { Food, LogEntry, RATINGS, STATUS_META, api, categoryLabel, fmtDateTime, foodEmoji, foodStatus, progressPct, ratingMeta } from '../api';
 
 interface Props {
   food: Food;
   onBack: () => void;
   onPlus: () => void;
-  onUntry: (entry?: LogEntry) => void;
   onRemoveLog: (entry: LogEntry) => void;
   onSave: (patch: { notes?: string; target?: number }) => Promise<void>;
   onDelete: () => void;
 }
 
-export function FoodDetailPage({ food, onBack, onPlus, onUntry, onRemoveLog, onSave, onDelete }: Props) {
+export function FoodDetailPage({ food, onBack, onPlus, onRemoveLog, onSave, onDelete }: Props) {
+  const st = foodStatus(food);
   const [log, setLog] = useState<LogEntry[] | null>(null);
   const [notes, setNotes] = useState(food.notes);
   const [target, setTarget] = useState(String(food.target));
@@ -55,6 +55,7 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onRemoveLog, onS
         <div class="detail-title">
           <h2>
             {foodEmoji(food.name, food.category)} {food.name}
+            <span class={`status-badge ${STATUS_META[st].cls}`}>{STATUS_META[st].label}</span>
           </h2>
           <span class="detail-cat">{categoryLabel(food.category)}</span>
         </div>
@@ -62,9 +63,6 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onRemoveLog, onS
 
       <div class="detail-counter-card">
         <div class="detail-counter">
-          <button class="counter-btn counter-minus" onClick={() => onUntry(log && log.length > 0 ? log[0] : undefined)} aria-label="cofnij ostatnią próbę">
-            −
-          </button>
           <div class="counter-center">
             <div class="counter-number">{food.tries}</div>
             <div class="counter-label">
@@ -83,7 +81,13 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onRemoveLog, onS
         </div>
         {food.tries < food.target && (
           <p class="detail-hint">
-            Jeszcze <b>{food.target - food.tries}</b> prób do celu. Małe zwycięstwa codziennie! 💪
+            {st === 'ok'
+              ? 'Ostatnia próba zielona — uznajemy za OK, choć cel nie padł. Skup się na innych! 💚'
+              : st === 'revisit'
+              ? `Ostatnio nie zjadł — wróć do niego za jakiś czas. Jeszcze ${food.target - food.tries} prób do celu.`
+              : st === 'new'
+              ? 'Jeszcze nie próbował — pierwsza próba czeka! 🧪'
+              : `Jeszcze ${food.target - food.tries} prób do celu. Małe zwycięstwa codziennie! 💪`}
           </p>
         )}
       </div>

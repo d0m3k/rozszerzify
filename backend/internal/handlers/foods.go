@@ -14,6 +14,7 @@ import (
 	"rozszerzify/internal/notify"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/lib/pq"
 )
 
 // Valid rating levels (how the kid reacted to one try):
@@ -48,7 +49,14 @@ type Food struct {
 
 	// Note of the most recent try (per-serving note, more important than the
 	// food-level note for quick glances)
+	// Note of the most recent try (per-serving note, more important than the
+	// food-level note for quick glances)
 	LastNote string `json:"last_note"`
+
+	// Rating of the most recent try (0 when the food was never tried), plus a
+	// small trace of the last few ratings for the "minki" row.
+	LastRating    int   `json:"last_rating"`
+	RecentRatings []int `json:"recent_ratings"`
 }
 
 type LogEntry struct {
@@ -71,20 +79,25 @@ type rankingEntry struct {
 // fetchFood loads one food (with rating aggregates) for the given user.
 func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 	f := &Food{}
+	var recent pq.Int64Array
 	err := conn.QueryRow(
 		`SELECT f.id, f.name, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
-		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), '')
+		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), ''),
+		        COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0),
+		        COALESCE((SELECT ARRAY(SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 5)), ARRAY[]::int[])
 		 FROM rz_foods f
 		 WHERE f.id = $1 AND f.user_id = $2`,
 		id, userID,
 	).Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote)
+		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent)
 	if err != nil {
+		log.Printf("[FOODS] fetch id=%d: %v", id, err)
 		return nil, err
 	}
+	f.RecentRatings = intSlice(recent)
 	return f, nil
 }
 
@@ -97,7 +110,9 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
-		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), '')
+		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), ''),
+		        COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0),
+		        COALESCE((SELECT ARRAY(SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 5)), ARRAY[]::int[])
 		 FROM rz_foods f
 		 WHERE f.user_id = $1
 		 ORDER BY f.id`,
@@ -113,11 +128,13 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 	foods := []Food{}
 	for rows.Next() {
 		var f Food
+		var recent pq.Int64Array
 		if err := rows.Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote); err != nil {
+			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent); err != nil {
 			log.Printf("[FOODS] scan: %v", err)
 			continue
 		}
+		f.RecentRatings = intSlice(recent)
 		foods = append(foods, f)
 	}
 	writeJSON(w, http.StatusOK, foods)
@@ -574,6 +591,15 @@ func (h *FoodHandler) DeleteLog(w http.ResponseWriter, r *http.Request) {
 
 // Ranking lists foods ordered by how well the kid received them
 // (avg rating desc, then number of tries desc).
+// intSlice converts a pq int array into []int.
+func intSlice(a pq.Int64Array) []int {
+	out := make([]int, len(a))
+	for i, v := range a {
+		out[i] = int(v)
+	}
+	return out
+}
+
 func (h *FoodHandler) Ranking(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(
 		`SELECT f.id, f.name, f.category, f.tries,
@@ -631,6 +657,19 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		triedToday = 0
 	}
 
+	// "OK" foods: reached the 15-try target OR the most recent try was green
+	// (rating >= 3 — the kid ate it), which means we can stop focusing on it.
+	var foodsOK int
+	if err := h.DB.QueryRow(
+		`SELECT COUNT(*)::int FROM rz_foods f
+		 WHERE f.user_id = $1
+		   AND (f.tries >= f.target
+		        OR COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0) >= 3)`,
+		uid,
+	).Scan(&foodsOK); err != nil {
+		foodsOK = 0
+	}
+
 	var daysSinceStart, daysUntilStart int
 	started := false
 	if h.Cfg.StartDate != "" {
@@ -666,9 +705,10 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"birth_date":       h.Cfg.BirthDate,
 		"baby_age_months":  ageMonths,
 		"baby_age_days":    ageDays,
-		"foods_total":      foodsTotal,
-		"foods_at_target":  atTarget,
-		"tries_total":      triesTotal,
+		"foods_total":       foodsTotal,
+		"foods_ok":          foodsOK,
+		"foods_at_target":   atTarget,
+		"tries_total":       triesTotal,
 		"foods_tried_today": triedToday,
 	})
 }

@@ -16,10 +16,26 @@ interface Toast {
   action?: { label: string; fn: () => void };
 }
 
+// ── Hash routing: #/foods, #/foods/{id}, #/ranking, #/add, #/search ─────
+function parseHash(): { page: Page; id: number } {
+  const h = window.location.hash.replace(/^#\/?/, '');
+  const parts = h.split('/').filter(Boolean);
+  if (parts[0] === 'foods' && parts[1]) {
+    const id = parseInt(parts[1], 10);
+    return { page: 'detail', id: Number.isFinite(id) ? id : 0 };
+  }
+  if (parts[0] === 'foods') return { page: 'foods', id: 0 };
+  if (parts[0] === 'ranking' || parts[0] === 'add' || parts[0] === 'search') {
+    return { page: parts[0], id: 0 };
+  }
+  return { page: 'foods', id: 0 };
+}
+
 export function App() {
+  const init = parseHash();
   const [auth, setAuth] = useState<AuthState | null>(loadAuth);
-  const [page, setPage] = useState<Page>('foods');
-  const [selId, setSelId] = useState(0);
+  const [page, setPage] = useState<Page>(init.page);
+  const [selId, setSelId] = useState(init.id);
   const [foods, setFoods] = useState<Food[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
@@ -37,6 +53,28 @@ export function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), opts.duration ?? 3500);
   }
 
+  // Routing: state is driven by the hash (browser back/forward + deep links work).
+  useEffect(() => {
+    if (!window.location.hash) window.location.hash = '/foods';
+    const onHash = () => {
+      const { page: p, id } = parseHash();
+      setPage(p);
+      setSelId(id);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  function go(p: Page, id = 0) {
+    const hash = p === 'detail' ? `#/foods/${id}` : `#/${p}`;
+    if (hash === window.location.hash) {
+      setPage(p);
+      setSelId(id);
+    } else {
+      window.location.hash = hash;
+    }
+  }
+
   useEffect(() => {
     if (!auth) return;
     api.listFoods().then(setFoods).catch(() => {});
@@ -52,13 +90,12 @@ export function App() {
   function handleLogin(state: AuthState) {
     saveAuth(state);
     setAuth(state);
-    setPage('foods');
+    go('foods');
   }
 
   function handleLogout() {
     clearAuth();
     setAuth(null);
-    setPage('foods');
   }
 
   async function handleTry(foodId: number, rating: number, note?: string) {
@@ -83,30 +120,7 @@ export function App() {
     }
   }
 
-  function removedToast(foodId: number, entry?: LogEntry) {
-    if (!entry) {
-      showToast('Cofnięto próbę');
-      return;
-    }
-    showToast('Cofnięto próbę', {
-      action: { label: 'Cofnij', fn: () => restoreTry(foodId, entry) },
-      duration: 6000,
-    });
-  }
-
-  // Untry from the detail page — the most recent entry is passed along so
-  // the toast can offer a real undo.
-  async function handleUntry(foodId: number, entry?: LogEntry) {
-    try {
-      await api.untryFood(foodId);
-    } catch {
-      return;
-    }
-    refresh();
-    removedToast(foodId, entry);
-  }
-
-  // Removing one specific ✕ entry from the history log.
+  // Removing one specific ✕ entry from the history log (undo offered).
   async function handleRemoveLog(foodId: number, entry: LogEntry) {
     try {
       await api.deleteLog(foodId, entry.id);
@@ -114,7 +128,10 @@ export function App() {
       return;
     }
     refresh();
-    removedToast(foodId, entry);
+    showToast('Usunięto próbę', {
+      action: { label: 'Cofnij', fn: () => restoreTry(foodId, entry) },
+      duration: 6000,
+    });
   }
 
   async function handleSave(foodId: number, patch: { notes?: string; target?: number }) {
@@ -125,7 +142,7 @@ export function App() {
 
   async function handleDelete(foodId: number) {
     await api.deleteFood(foodId);
-    setPage('foods');
+    go('foods');
     refresh();
     showToast('Usunięto z listy');
   }
@@ -170,7 +187,7 @@ export function App() {
           <FoodsPage
             foods={foods}
             stats={stats}
-            onOpenDetail={(id) => { setSelId(id); setPage('detail'); }}
+            onOpenDetail={(id) => go('detail', id)}
             onPlus={(f) => setSheetFor(f)}
           />
         )}
@@ -178,30 +195,29 @@ export function App() {
           <RankingPage
             ranking={ranking}
             loading={!rankLoaded}
-            onOpenDetail={(id) => { setSelId(id); setPage('detail'); }}
+            onOpenDetail={(id) => go('detail', id)}
           />
         )}
         {page === 'search' && (
           <SearchPage
             foods={foods}
-            onBack={() => setPage('foods')}
+            onBack={() => go('foods')}
             onPick={(f) => setSheetFor(f)}
             onQuickAdd={handleQuickAdd}
-            onFullForm={() => setPage('add')}
+            onFullForm={() => go('add')}
           />
         )}
         {page === 'add' && (
           <AddFoodPage
-            onBack={() => setPage('foods')}
-            onAdded={() => { setPage('foods'); refresh(); showToast('➕ Dodano'); }}
+            onBack={() => go('foods')}
+            onAdded={() => { go('foods'); refresh(); showToast('➕ Dodano'); }}
           />
         )}
         {page === 'detail' && selFood && (
           <FoodDetailPage
             food={selFood}
-            onBack={() => setPage('foods')}
+            onBack={() => go('foods')}
             onPlus={() => setSheetFor(selFood)}
-            onUntry={handleUntry}
             onRemoveLog={handleRemoveLog}
             onSave={(patch) => handleSave(selFood.id, patch)}
             onDelete={() => handleDelete(selFood.id)}
@@ -210,14 +226,14 @@ export function App() {
       </div>
 
       <nav class="bottom-nav">
-        <button class={page === 'foods' ? 'nav-btn active' : 'nav-btn'} onClick={() => setPage('foods')}>
+        <button class={page === 'foods' ? 'nav-btn active' : 'nav-btn'} onClick={() => go('foods')}>
           <span class="nav-icon">🍽️</span>
           <span>Jedzenie</span>
         </button>
-        <button class="nav-add" onClick={() => setPage('search')} aria-label="szybkie dodawanie / wyszukiwanie">
+        <button class="nav-add" onClick={() => go('search')} aria-label="szybkie dodawanie / wyszukiwanie">
           +
         </button>
-        <button class={page === 'ranking' ? 'nav-btn active' : 'nav-btn'} onClick={() => setPage('ranking')}>
+        <button class={page === 'ranking' ? 'nav-btn active' : 'nav-btn'} onClick={() => go('ranking')}>
           <span class="nav-icon">🏆</span>
           <span>Ranking</span>
         </button>

@@ -14,6 +14,8 @@ export interface Food {
   rating_count: number;
   rating_sum: number;
   last_note: string;
+  last_rating: number;
+  recent_ratings: number[];
 }
 
 export interface Stats {
@@ -25,6 +27,7 @@ export interface Stats {
   baby_age_months: number;
   baby_age_days: number;
   foods_total: number;
+  foods_ok: number;
   foods_at_target: number;
   tries_total: number;
   foods_tried_today: number;
@@ -169,6 +172,57 @@ export function sortCategories(list: string[]): string[] {
 export function progressPct(tries: number, target: number): number {
   if (target <= 0) return 0;
   return Math.min(100, Math.round((tries / target) * 100));
+}
+
+// ── Status logic ────────────────────────────────────────────────────────
+// The key rule: if the LAST try was green (rating >= 3 — the kid ate it),
+// the food is considered OK even before reaching the 15-try target — we can
+// stop focusing on it. A recent refusal (rating 1-2) means "come back to it".
+
+export type FoodStatus = 'new' | 'revisit' | 'progress' | 'ok';
+
+export function foodStatus(f: Food): FoodStatus {
+  if (f.tries <= 0) return 'new';
+  if (f.tries < f.target && f.last_rating >= 1 && f.last_rating <= 2) return 'revisit';
+  if (f.tries >= f.target || f.last_rating >= 3) return 'ok';
+  return 'progress';
+}
+
+export const STATUS_META: Record<FoodStatus, { label: string; cls: string }> = {
+  new: { label: '🧪 NOWE', cls: 'st-new' },
+  revisit: { label: '⬅ wróć', cls: 'st-revisit' },
+  progress: { label: 'w próbie', cls: 'st-progress' },
+  ok: { label: '✓ OK', cls: 'st-ok' },
+};
+
+// Priority for the "Priorytet" sorting — what to try next:
+// 0 = nowe (never tried), 1 = ostatnio nie zjadł (revisit), 2 = w próbie, 3 = OK
+const TIER: Record<FoodStatus, number> = { new: 0, revisit: 1, progress: 2, ok: 3 };
+export function priorityTier(f: Food): number {
+  return TIER[foodStatus(f)];
+}
+
+export type SortMode = 'priorytet' | 'kategorie' | 'az';
+
+export function sortFoods(foods: Food[], mode: SortMode): { groups?: [string, Food[]][]; list?: Food[] } {
+  if (mode === 'priorytet') {
+    const list = [...foods].sort((a, b) => {
+      const t = priorityTier(a) - priorityTier(b);
+      if (t !== 0) return t;
+      const ci = CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category);
+      return (ci || a.name.localeCompare(b.name, 'pl'));
+    });
+    return { list };
+  }
+  if (mode === 'az') {
+    return { list: [...foods].sort((a, b) => a.name.localeCompare(b.name, 'pl')) };
+  }
+  // kategorie
+  const lists: Record<string, Food[]> = {};
+  for (const f of foods) (lists[f.category] ||= []).push(f);
+  for (const l of Object.values(lists)) l.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+  const groups = sortCategories(Object.keys(lists)).map((c) => [c, lists[c]] as [string, Food[]]);
+  return { groups };
 }
 
 export function fmtDate(iso: string): string {
