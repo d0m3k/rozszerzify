@@ -1,0 +1,26 @@
+# Environment — NEVER commit real secrets (repo is public)
+.env
+.env.dev
+.env.local
+.env.production
+
+# Build output
+dist/
+build/
+frontend/dist/
+backend/rozszerzify
+backend/rozszerzify-dev
+*.log
+
+# Go
+.gopath/
+.gomodcache/
+
+# Node
+node_modules/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

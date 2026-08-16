@@ -1,0 +1,22 @@
+[Unit]
+Description=Rozszerzify — baby diet tracking backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/rozszerzify
+EnvironmentFile=/opt/rozszerzify/.env
+ExecStart=/opt/rozszerzify/rozszerzify
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
