@@ -3,6 +3,7 @@ import {
   Food,
   LogEntry,
   RATINGS,
+  api,
   categoryEmoji,
   categoryLabel,
   fmtDateTime,
@@ -28,16 +29,16 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete
   const [saved, setSaved] = useState(false);
 
   function loadLog() {
-    fetch(`/api/foods/${food.id}/log`)
-      .then((r) => r.json())
+    api
+      .foodLog(food.id)
       .then(setLog)
-      .catch(() => {});
+      .catch(() => setLog([]));
   }
 
   useEffect(() => {
     setLog(null);
     loadLog();
-  }, [food.id]);
+  }, [food.id, food.tries]);
 
   async function save() {
     setBusy(true);
