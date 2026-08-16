@@ -8,7 +8,7 @@ let hadController = !!navigator.serviceWorker?.controller;
 
 function Root() {
   const {
-    needRefresh: [needRefresh, setNeedRefresh],
+    needRefresh: [needRefresh, setNeedRefreshRaw],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(swReg) {
@@ -30,6 +30,9 @@ function Root() {
       });
     },
   });
+  // vite-plugin-pwa types the setter as StateUpdater<T> (value union) instead
+  // of Dispatch — it is a plain setter at runtime, so cast it.
+  const setNeedRefresh = setNeedRefreshRaw as (v: boolean) => void;
 
   return (
     <>

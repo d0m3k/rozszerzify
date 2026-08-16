@@ -1,4 +1,4 @@
-import { RankingEntry, foodEmoji, ratingMeta } from '../api';
+import { RankingEntry, categoryEmoji, foodEmoji, ratingMeta } from '../api';
 
 interface Props {
   ranking: RankingEntry[];

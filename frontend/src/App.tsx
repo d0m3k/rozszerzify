@@ -218,7 +218,7 @@ export function App() {
             food={selFood}
             onBack={() => go('foods')}
             onPlus={() => setSheetFor(selFood)}
-            onRemoveLog={handleRemoveLog}
+            onRemoveLog={(entry) => handleRemoveLog(selFood.id, entry)}
             onSave={(patch) => handleSave(selFood.id, patch)}
             onDelete={() => handleDelete(selFood.id)}
           />
