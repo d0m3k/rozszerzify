@@ -38,8 +38,8 @@ function FoodRow({ f, showCat, onOpen, onPlus }: { f: Food; showCat: boolean; on
         </div>
         {showCat && <div class="food-cat">{categoryEmoji(f.category)} {categoryLabel(f.category)}</div>}
         {f.recent_ratings.length > 0 && (
-          <div class="minki" aria-label="ostatnie oceny">
-            {f.recent_ratings.slice(0, 5).map((r, i) => (
+          <div class="minki" aria-label="ostatnie oceny (od najstarszej)">
+            {[...f.recent_ratings].reverse().slice(0, 5).map((r, i) => (
               <span class="minka" key={i}>{ratingMeta(r).emoji}</span>
             ))}
           </div>
