@@ -5,6 +5,7 @@ import {
   categoryEmoji,
   categoryLabel,
   foodEmoji,
+  normalize,
 } from '../api';
 
 interface Props {
@@ -27,17 +28,18 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
   }, []);
 
   const query = q.trim().toLowerCase();
+  const nq = normalize(query);
   const matches = query
     ? foods
-        .filter((f) => f.name.toLowerCase().includes(query) || f.category.includes(query))
+        .filter((f) => normalize(f.name).includes(nq) || normalize(f.category).includes(nq))
         .sort((a, b) => {
-          const sa = a.name.toLowerCase().startsWith(query) ? 0 : 1;
-          const sb = b.name.toLowerCase().startsWith(query) ? 0 : 1;
+          const sa = normalize(a.name).startsWith(nq) ? 0 : 1;
+          const sb = normalize(b.name).startsWith(nq) ? 0 : 1;
           return sa - sb || a.name.localeCompare(b.name, 'pl');
         })
     : [];
 
-  const exact = query !== '' && foods.some((f) => f.name.toLowerCase() === query);
+  const exact = query !== '' && foods.some((f) => normalize(f.name) === nq);
   const showAdd = query !== '' && !exact;
 
   return (
@@ -85,6 +87,8 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
       {!query && (
         <p class="search-hint muted">
           Szybkie logowanie: wpisz lub wybierz jedzenie poniżej, potem tylko ocena. 🍼
+          <br />
+          Polskie znaki niepotrzebne — „wolowina” znajdzie „wołowinę”.
         </p>
       )}
 

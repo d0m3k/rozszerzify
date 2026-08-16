@@ -180,6 +180,17 @@ export function progressPct(tries: number, target: number): number {
   return Math.min(100, Math.round((tries / target) * 100));
 }
 
+// normalize strips Polish diacritics for tolerant matching: "wolowina" →
+// "wołowina", "smietana" → "śmietana". Uses NFD decomposition for accent
+// marks plus an explicit map for ł (which NFD does not decompose).
+export function normalize(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/ł/g, 'l')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 // ── Status logic ────────────────────────────────────────────────────────
 // The key rule: if the LAST try was green (rating >= 3 — the kid ate it),
 // the food is considered OK even before reaching the 15-try target — we can

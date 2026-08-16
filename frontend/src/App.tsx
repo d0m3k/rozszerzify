@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { loadAuth, clearAuth, saveAuth, AuthState } from './stores/auth';
-import { api, Food, LogEntry, RankingEntry, Stats } from './api';
+import { api, Food, LogEntry, RankingEntry, Stats, normalize } from './api';
 import { LoginPage } from './pages/Login';
 import { FoodsPage } from './pages/Foods';
 import { FoodDetailPage } from './pages/FoodDetail';
@@ -153,7 +153,7 @@ export function App() {
       setSheetFor(created);
       refresh();
     } catch {
-      const existing = foods.find((f) => f.name.toLowerCase() === name.toLowerCase());
+      const existing = foods.find((f) => normalize(f.name) === normalize(name));
       if (existing) setSheetFor(existing);
     }
   }
