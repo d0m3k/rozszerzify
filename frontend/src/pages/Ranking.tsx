@@ -14,9 +14,9 @@ export function RankingPage({ ranking, loading, onOpenDetail }: Props) {
 
   return (
     <div class="page">
-      <h2 class="page-title">🏆 Ranking smaków</h2>
+      <h2 class="page-title">🏆 Ranking — co zjada najlepiej</h2>
       <p class="page-subtitle">
-        Które jedzenie maluch lubi najbardziej? Średnia z ocen każdej próby.
+        Które jedzenie Krzyś zjada z największym apetytem? Średnia z ocen każdej próby.
       </p>
 
       {loading && <p class="muted">Ładowanie…</p>}
@@ -25,8 +25,8 @@ export function RankingPage({ ranking, loading, onOpenDetail }: Props) {
         <div class="empty-state">
           <div class="empty-emoji">🤤</div>
           <p>
-            Jeszcze nie ma ocen. Po każdym posiłku tapnij <b>+1</b> i wybierz, jak smakowało
-            (od „nie smakuje” po „bardzo smakuje”), a ranking wypełni się sam.
+            Jeszcze nie ma ocen. Po każdym posiłku tapnij <b>+1</b> i wybierz, czy zjadł
+            (od „nie zjadł” po „zjadł i chciał więcej”), a ranking wypełni się sam.
           </p>
         </div>
       )}

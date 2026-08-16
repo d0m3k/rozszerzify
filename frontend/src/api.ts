@@ -18,7 +18,9 @@ export interface Food {
 
 export interface Stats {
   start_date: string;
+  started: boolean;
   days_since_start: number;
+  days_until_start: number;
   birth_date: string;
   baby_age_months: number;
   baby_age_days: number;
@@ -102,6 +104,8 @@ export const api = {
   untryFood: (id: number) => request<Food>(`/api/foods/${id}/untry`, { method: 'POST' }),
 
   foodLog: (id: number) => request<LogEntry[]>(`/api/foods/${id}/log`),
+  deleteLog: (foodId: number, logId: number) =>
+    request<Food>(`/api/foods/${foodId}/log/${logId}`, { method: 'DELETE' }),
   ranking: () => request<RankingEntry[]>('/api/ranking'),
   stats: () => request<Stats>('/api/stats'),
 };
@@ -109,10 +113,10 @@ export const api = {
 // ── Data helpers ──────────────────────────────────────────────────────
 
 export const RATINGS = [
-  { v: 1, emoji: '😖', label: 'Nie smakuje' },
-  { v: 2, emoji: '😐', label: 'Zjada, ale niechętnie' },
-  { v: 3, emoji: '🙂', label: 'Smakuje' },
-  { v: 4, emoji: '🤩', label: 'Bardzo smakuje' },
+  { v: 1, emoji: '😖', label: 'Nie zjadł' },
+  { v: 2, emoji: '😐', label: 'Zjadł niechętnie' },
+  { v: 3, emoji: '🙂', label: 'Zjadł' },
+  { v: 4, emoji: '🤩', label: 'Zjadł i chciał więcej' },
 ];
 
 export function ratingMeta(v: number) {

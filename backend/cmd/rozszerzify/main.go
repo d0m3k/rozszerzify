@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"rozszerzify/internal/config"
@@ -69,11 +71,17 @@ var starterFoods = []struct{ Name, Category string }{
 
 func main() {
 	seedFlag := flag.Bool("seed", false, "force seed even if data exists, then start")
+	remindFlag := flag.Bool("remind", false, "cron mode: send start-date reminder if today is a checkpoint, then exit")
 	flag.Parse()
 
 	_ = godotenv.Load()
 
 	cfg := config.Load()
+
+	if *remindFlag {
+		os.Exit(runReminder(cfg))
+	}
+
 	if cfg.DatabaseURL == "" {
 		log.Fatal("DATABASE_URL is required (see .env.example)")
 	}
@@ -122,6 +130,7 @@ func main() {
 			r.Post("/foods/{id}/try", foodH.Try)
 			r.Post("/foods/{id}/untry", foodH.Untry)
 			r.Get("/foods/{id}/log", foodH.Log)
+			r.Delete("/foods/{id}/log/{logId}", foodH.DeleteLog)
 
 			r.Get("/ranking", foodH.Ranking)
 			r.Get("/stats", foodH.Stats)
@@ -132,6 +141,59 @@ func main() {
 	if err := http.ListenAndServe(cfg.ListenAddr, r); err != nil {
 		log.Fatalf("server: %v", err)
 	}
+}
+
+// runReminder is the cron job mode: it sends a Pushover notification on the
+// countdown checkpoints (T-30/14/7/3/1/0) towards the diet start date.
+// Idempotent via marker files, so a daily cron can call it freely.
+func runReminder(cfg *config.Config) int {
+	n := notify.New(cfg.PushoverUserKey, cfg.PushoverAppToken)
+	if !n.Enabled() {
+		fmt.Println("remind: Pushover not configured — nothing to do")
+		return 0
+	}
+
+	nowY, nowM, nowD := time.Now().UTC().Date()
+	today := time.Date(nowY, nowM, nowD, 0, 0, 0, 0, time.UTC)
+	sY, sM, sD := cfg.StartTime().UTC().Date()
+	start := time.Date(sY, sM, sD, 0, 0, 0, 0, time.UTC)
+
+	daysUntil := int(start.Sub(today).Hours() / 24)
+	if daysUntil < 0 {
+		fmt.Printf("remind: diet already started %d days ago — no reminders\n", -daysUntil)
+		return 0
+	}
+
+	checkpoints := map[int]string{
+		30: "Do startu rozszerzania diety zostało 30 dni — planujesz pierwsze warzywa? 🥕",
+		14: "Start diety za 14 dni — skompletuj łyżeczki, krzesełko i śliniaki 🍼",
+		7:  "Za tydzień start rozszerzania diety! Przygotuj listę pierwszych smaków 🥦",
+		3:  "72h do startu — zrób zapasy: marchew, ziemniak, dynia, brokuł 🛒",
+		1:  "JUTRO start rozszerzania diety! Będzie się działo 🎉",
+		0:  "DZIŚ start rozszerzania diety! Dzień 1 — powodzenia! 🍼✨",
+	}
+
+	msg, ok := checkpoints[daysUntil]
+	if !ok {
+		fmt.Printf("remind: no checkpoint today (T-%d)\n", daysUntil)
+		return 0
+	}
+
+	// One push per checkpoint — marker files keep the daily cron idempotent.
+	marker := filepath.Join(cfg.RemindDir, fmt.Sprintf(".remind-T%d", daysUntil))
+	if _, err := os.Stat(marker); err == nil {
+		fmt.Printf("remind: T-%d already sent\n", daysUntil)
+		return 0
+	}
+
+	if err := os.MkdirAll(cfg.RemindDir, 0755); err != nil {
+		fmt.Printf("remind: mkdir %v\n", err)
+	}
+
+	n.Send("⏰ Rozszerzanie diety", msg)
+	_ = os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)), 0644)
+	fmt.Printf("remind: sent T-%d\n", daysUntil)
+	return 0
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -212,6 +274,8 @@ func seedData(conn *sql.DB, cfg *config.Config) error {
 		log.Printf("  %d starter foods added", len(starterFoods))
 	}
 
-	log.Printf("  start date: %s (day %d)", cfg.StartDate, int(time.Since(cfg.StartTime()).Hours()/24)+1)
+	if cfg.StartDate != "" {
+		log.Printf("  start date: %s", cfg.StartDate)
+	}
 	return nil
 }

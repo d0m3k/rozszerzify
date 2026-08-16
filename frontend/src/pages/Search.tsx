@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   CATEGORY_ORDER,
   Food,
@@ -18,6 +18,13 @@ interface Props {
 export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Props) {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('inne');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus + pop the keyboard right after the page mounts.
+  useEffect(() => {
+    const t = window.setTimeout(() => inputRef.current?.focus(), 50);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const query = q.trim().toLowerCase();
   const matches = query
@@ -44,6 +51,7 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
           placeholder="Czego dziś spróbował?"
           value={q}
           onInput={(e) => setQ((e.target as HTMLInputElement).value)}
+          ref={inputRef}
           autoFocus
         />
       </div>

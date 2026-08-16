@@ -5,12 +5,13 @@ interface Props {
   food: Food;
   onBack: () => void;
   onPlus: () => void;
-  onUntry: () => void;
+  onUntry: (entry?: LogEntry) => void;
+  onRemoveLog: (entry: LogEntry) => void;
   onSave: (patch: { notes?: string; target?: number }) => Promise<void>;
   onDelete: () => void;
 }
 
-export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete }: Props) {
+export function FoodDetailPage({ food, onBack, onPlus, onUntry, onRemoveLog, onSave, onDelete }: Props) {
   const [log, setLog] = useState<LogEntry[] | null>(null);
   const [notes, setNotes] = useState(food.notes);
   const [target, setTarget] = useState(String(food.target));
@@ -61,7 +62,7 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete
 
       <div class="detail-counter-card">
         <div class="detail-counter">
-          <button class="counter-btn counter-minus" onClick={onUntry} aria-label="cofnij próbę">
+          <button class="counter-btn counter-minus" onClick={() => onUntry(log && log.length > 0 ? log[0] : undefined)} aria-label="cofnij ostatnią próbę">
             −
           </button>
           <div class="counter-center">
@@ -90,7 +91,7 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete
       {food.rating_count > 0 && (
         <section class="card">
           <h3 class="card-title">
-            Jak smakowało — średnia {food.rating_avg.toFixed(1)}{' '}
+            Jak zjada — średnia {food.rating_avg.toFixed(1)}{' '}
             {ratingMeta(Math.round(food.rating_avg)).emoji}
           </h3>
           <div class="rating-bars">
@@ -138,6 +139,13 @@ export function FoodDetailPage({ food, onBack, onPlus, onUntry, onSave, onDelete
                   <span class="log-note">{l.note || ratingMeta(l.rating).label.toLowerCase()}</span>
                   <span class="log-date">{fmtDateTime(l.tried_at)}</span>
                 </span>
+                <button
+                  class="log-del"
+                  aria-label="usuń tę próbę"
+                  onClick={() => onRemoveLog(l)}
+                >
+                  ✕
+                </button>
               </li>
             ))}
           </ul>

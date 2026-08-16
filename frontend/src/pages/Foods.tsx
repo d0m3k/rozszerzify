@@ -5,10 +5,9 @@ interface Props {
   stats: Stats | null;
   onOpenDetail: (id: number) => void;
   onPlus: (food: Food) => void;
-  onMinus: (food: Food) => void;
 }
 
-export function FoodsPage({ foods, stats, onOpenDetail, onPlus, onMinus }: Props) {
+export function FoodsPage({ foods, stats, onOpenDetail, onPlus }: Props) {
   const cats = sortCategories([...new Set(foods.map((f) => f.category))]);
   const byCat: Record<string, Food[]> = {};
   for (const f of foods) {
@@ -23,14 +22,23 @@ export function FoodsPage({ foods, stats, onOpenDetail, onPlus, onMinus }: Props
       <div class="stats-row">
         {stats && (
           <>
-            <div class="stat-chip">
-              <b>{stats.baby_age_months} mies. {stats.baby_age_days > 0 ? `${stats.baby_age_days} dn.` : ''}</b>
-              <span>wiek Krzyśka</span>
-            </div>
-            <div class="stat-chip">
-              <b>{stats.days_since_start}</b>
-              <span>dzień od startu</span>
-            </div>
+            {stats.birth_date && (
+              <div class="stat-chip">
+                <b>{stats.baby_age_months} mies. {stats.baby_age_days > 0 ? `${stats.baby_age_days} dn.` : ''}</b>
+                <span>wiek Krzyśka</span>
+              </div>
+            )}
+            {stats.started ? (
+              <div class="stat-chip">
+                <b>{stats.days_since_start}</b>
+                <span>dzień od startu</span>
+              </div>
+            ) : stats.days_until_start > 0 ? (
+              <div class="stat-chip stat-chip-hot">
+                <b>⏳ {stats.days_until_start}</b>
+                <span>dn. do startu diety</span>
+              </div>
+            ) : null}
             <div class="stat-chip">
               <b>{stats.foods_total}</b>
               <span>produktów</span>
@@ -89,16 +97,6 @@ export function FoodsPage({ foods, stats, onOpenDetail, onPlus, onMinus }: Props
                 {f.last_note && <div class="food-last-note">📝 {f.last_note}</div>}
               </div>
               <div class="food-actions">
-                <button
-                  class="btn-minus"
-                  aria-label="cofnij próbę"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onMinus(f);
-                  }}
-                >
-                  −
-                </button>
                 <button
                   class="btn-plus"
                   aria-label="dodaj próbę"

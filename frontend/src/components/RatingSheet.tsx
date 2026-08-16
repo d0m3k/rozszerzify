@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { RATINGS } from '../api';
+import { NotePresets } from './NotePresets';
 
 interface Props {
   foodName: string;
@@ -15,7 +16,7 @@ export function RatingSheet({ foodName, onSelect, onClose }: Props) {
       <div class="sheet" onClick={(e) => e.stopPropagation()}>
         <div class="sheet-handle" />
         <h3 class="sheet-title">
-          Jak posmakowała <b>{foodName}</b>?
+          Jak zjadł <b>{foodName}</b>?
         </h3>
         <input
           class="input sheet-note"
@@ -23,6 +24,7 @@ export function RatingSheet({ foodName, onSelect, onClose }: Props) {
           onInput={(e) => setNote((e.target as HTMLInputElement).value)}
           placeholder="Notatka: jak podane, z czym…"
         />
+        <NotePresets value={note} onChange={setNote} />
         <div class="rating-grid">
           {RATINGS.map((r) => (
             <button key={r.v} class="rating-option" onClick={() => onSelect(r.v, note.trim())}>

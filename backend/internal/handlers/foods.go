@@ -500,6 +500,78 @@ func (h *FoodHandler) Log(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entries)
 }
 
+// DeleteLog removes one specific try entry (✕ in the history list) and
+// fixes the food counter + last_tried_at accordingly.
+func (h *FoodHandler) DeleteLog(w http.ResponseWriter, r *http.Request) {
+	foodID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || foodID < 1 {
+		writeErr(w, http.StatusBadRequest, "invalid food id")
+		return
+	}
+	logID, err := strconv.Atoi(chi.URLParam(r, "logId"))
+	if err != nil || logID < 1 {
+		writeErr(w, http.StatusBadRequest, "invalid log id")
+		return
+	}
+	uid := contextUserID(r)
+
+	tx, err := h.DB.Begin()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer tx.Rollback()
+
+	// The entry must belong to the given food AND the food to the user.
+	var foodIDOfEntry int
+	err = tx.QueryRow(
+		`SELECT l.food_id FROM rz_food_log l
+		 JOIN rz_foods f ON f.id = l.food_id
+		 WHERE l.id = $1 AND f.user_id = $2`,
+		logID, uid,
+	).Scan(&foodIDOfEntry)
+	if err == sql.ErrNoRows {
+		writeErr(w, http.StatusNotFound, "entry not found")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if foodIDOfEntry != foodID {
+		writeErr(w, http.StatusBadRequest, "entry does not belong to this food")
+		return
+	}
+
+	if _, err := tx.Exec(`DELETE FROM rz_food_log WHERE id = $1`, logID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE rz_foods
+		 SET tries = GREATEST(tries - 1, 0),
+		     last_tried_at = (SELECT tried_at FROM rz_food_log WHERE food_id = $1 ORDER BY id DESC LIMIT 1),
+		     updated_at = NOW()
+		 WHERE id = $1 AND user_id = $2`,
+		foodID, uid,
+	); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	f, err := h.fetchFood(h.DB, foodID, uid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
 // Ranking lists foods ordered by how well the kid received them
 // (avg rating desc, then number of tries desc).
 func (h *FoodHandler) Ranking(w http.ResponseWriter, r *http.Request) {
@@ -559,24 +631,44 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		triedToday = 0
 	}
 
-	start := h.Cfg.StartTime()
-	days := int(time.Since(start).Hours()/24) + 1
-	if days < 1 {
-		days = 1
+	var daysSinceStart, daysUntilStart int
+	started := false
+	if h.Cfg.StartDate != "" {
+		start := h.Cfg.StartTime()
+		// The diet may not have started yet (start date in the future): show a
+		// countdown instead of a day counter. All math on UTC midnights so the
+		// day boundaries are unambiguous.
+		y, m, d := time.Now().UTC().Date()
+		nowMid := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+		sy, sm, sd := start.UTC().Date()
+		startMid := time.Date(sy, sm, sd, 0, 0, 0, 0, time.UTC)
+
+		started = !nowMid.Before(startMid)
+		if started {
+			daysSinceStart = int(nowMid.Sub(startMid).Hours()/24) + 1
+		} else {
+			daysUntilStart = int(startMid.Sub(nowMid).Hours() / 24)
+		}
 	}
 
-	// Baby's age (calendar months + leftover days).
-	ageMonths, ageDays := ageMonthsDays(h.Cfg.BirthTime(), time.Now())
+	// Baby's age (calendar months + leftover days). Only when a birth date
+	// is configured (kept out of the public repo).
+	ageMonths, ageDays := 0, 0
+	if h.Cfg.BirthDate != "" {
+		ageMonths, ageDays = ageMonthsDays(h.Cfg.BirthTime(), time.Now())
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"start_date":        h.Cfg.StartDate,
-		"days_since_start":  days,
-		"birth_date":        h.Cfg.BirthDate,
-		"baby_age_months":   ageMonths,
-		"baby_age_days":     ageDays,
-		"foods_total":       foodsTotal,
-		"foods_at_target":   atTarget,
-		"tries_total":       triesTotal,
+		"start_date":       h.Cfg.StartDate,
+		"started":          started,
+		"days_since_start": daysSinceStart,
+		"days_until_start": daysUntilStart,
+		"birth_date":       h.Cfg.BirthDate,
+		"baby_age_months":  ageMonths,
+		"baby_age_days":    ageDays,
+		"foods_total":      foodsTotal,
+		"foods_at_target":  atTarget,
+		"tries_total":      triesTotal,
 		"foods_tried_today": triedToday,
 	})
 }

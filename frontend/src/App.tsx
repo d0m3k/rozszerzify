@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { loadAuth, clearAuth, saveAuth, AuthState } from './stores/auth';
-import { api, Food, RankingEntry, Stats } from './api';
+import { api, Food, LogEntry, RankingEntry, Stats } from './api';
 import { LoginPage } from './pages/Login';
 import { FoodsPage } from './pages/Foods';
 import { FoodDetailPage } from './pages/FoodDetail';
@@ -11,6 +11,11 @@ import { RatingSheet } from './components/RatingSheet';
 
 type Page = 'foods' | 'ranking' | 'add' | 'search' | 'detail';
 
+interface Toast {
+  msg: string;
+  action?: { label: string; fn: () => void };
+}
+
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(loadAuth);
   const [page, setPage] = useState<Page>('foods');
@@ -20,9 +25,17 @@ export function App() {
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [rankLoaded, setRankLoaded] = useState(false);
   const [sheetFor, setSheetFor] = useState<Food | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [tick, setTick] = useState(0);
+  const toastTimer = useRef<number | null>(null);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  function showToast(msg: string, opts: { action?: Toast['action']; duration?: number } = {}) {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ msg, action: opts.action });
+    toastTimer.current = window.setTimeout(() => setToast(null), opts.duration ?? 3500);
+  }
 
   useEffect(() => {
     if (!auth) return;
@@ -45,21 +58,78 @@ export function App() {
   function handleLogout() {
     clearAuth();
     setAuth(null);
+    setPage('foods');
   }
 
   async function handleTry(foodId: number, rating: number, note?: string) {
     try {
       await api.tryFood(foodId, rating, note);
     } catch {
-      /* network hiccup — sheet stays? no, close and let user retry */
+      /* ignore */
     } finally {
       setSheetFor(null);
       refresh();
     }
   }
 
-  // Quick-add from search: create the food, then immediately open the rating
-  // sheet for it so the parent can log the first try in one more tap.
+  // Restore a removed try (undo) by re-adding it with the same rating + note.
+  async function restoreTry(foodId: number, entry: LogEntry) {
+    try {
+      await api.tryFood(foodId, entry.rating, entry.note);
+      showToast('✓ Próba przywrócona');
+      refresh();
+    } catch {
+      showToast('Nie udało się przywrócić');
+    }
+  }
+
+  function removedToast(foodId: number, entry?: LogEntry) {
+    if (!entry) {
+      showToast('Cofnięto próbę');
+      return;
+    }
+    showToast('Cofnięto próbę', {
+      action: { label: 'Cofnij', fn: () => restoreTry(foodId, entry) },
+      duration: 6000,
+    });
+  }
+
+  // Untry from the detail page — the most recent entry is passed along so
+  // the toast can offer a real undo.
+  async function handleUntry(foodId: number, entry?: LogEntry) {
+    try {
+      await api.untryFood(foodId);
+    } catch {
+      return;
+    }
+    refresh();
+    removedToast(foodId, entry);
+  }
+
+  // Removing one specific ✕ entry from the history log.
+  async function handleRemoveLog(foodId: number, entry: LogEntry) {
+    try {
+      await api.deleteLog(foodId, entry.id);
+    } catch {
+      return;
+    }
+    refresh();
+    removedToast(foodId, entry);
+  }
+
+  async function handleSave(foodId: number, patch: { notes?: string; target?: number }) {
+    await api.updateFood(foodId, patch);
+    refresh();
+    showToast('✓ Zapisano');
+  }
+
+  async function handleDelete(foodId: number) {
+    await api.deleteFood(foodId);
+    setPage('foods');
+    refresh();
+    showToast('Usunięto z listy');
+  }
+
   async function handleQuickAdd(name: string, category: string) {
     try {
       const created = await api.createFood({ name, category });
@@ -69,25 +139,6 @@ export function App() {
       const existing = foods.find((f) => f.name.toLowerCase() === name.toLowerCase());
       if (existing) setSheetFor(existing);
     }
-  }
-
-  async function handleUntry(foodId: number) {
-    try {
-      await api.untryFood(foodId);
-    } catch { /* ignore */ } finally {
-      refresh();
-    }
-  }
-
-  async function handleSave(foodId: number, patch: { notes?: string; target?: number }) {
-    await api.updateFood(foodId, patch);
-    refresh();
-  }
-
-  async function handleDelete(foodId: number) {
-    await api.deleteFood(foodId);
-    setPage('foods');
-    refresh();
   }
 
   if (!auth) {
@@ -121,7 +172,6 @@ export function App() {
             stats={stats}
             onOpenDetail={(id) => { setSelId(id); setPage('detail'); }}
             onPlus={(f) => setSheetFor(f)}
-            onMinus={(f) => handleUntry(f.id)}
           />
         )}
         {page === 'ranking' && (
@@ -143,7 +193,7 @@ export function App() {
         {page === 'add' && (
           <AddFoodPage
             onBack={() => setPage('foods')}
-            onAdded={() => { setPage('foods'); refresh(); }}
+            onAdded={() => { setPage('foods'); refresh(); showToast('➕ Dodano'); }}
           />
         )}
         {page === 'detail' && selFood && (
@@ -151,7 +201,8 @@ export function App() {
             food={selFood}
             onBack={() => setPage('foods')}
             onPlus={() => setSheetFor(selFood)}
-            onUntry={() => handleUntry(selFood.id)}
+            onUntry={handleUntry}
+            onRemoveLog={handleRemoveLog}
             onSave={(patch) => handleSave(selFood.id, patch)}
             onDelete={() => handleDelete(selFood.id)}
           />
@@ -178,6 +229,23 @@ export function App() {
           onSelect={(r, note) => handleTry(sheetFor.id, r, note)}
           onClose={() => setSheetFor(null)}
         />
+      )}
+
+      {toast && (
+        <div class="toast">
+          <span class="toast-msg">{toast.msg}</span>
+          {toast.action && (
+            <button
+              class="toast-action"
+              onClick={() => {
+                toast.action!.fn();
+                setToast(null);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

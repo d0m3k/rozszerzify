@@ -1,5 +1,6 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, CATEGORY_ORDER, CATEGORIES, categoryEmoji } from '../api';
+import { NotePresets } from '../components/NotePresets';
 
 interface Props {
   onBack: () => void;
@@ -15,6 +16,12 @@ export function AddFoodPage({ onBack, onAdded }: Props) {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  // Reliable way to pop the keyboard on mobile: focus right after mount.
+  useEffect(() => {
+    requestAnimationFrame(() => nameRef.current?.focus());
+  }, []);
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -56,6 +63,7 @@ export function AddFoodPage({ onBack, onAdded }: Props) {
             value={name}
             onInput={(e) => setName((e.target as HTMLInputElement).value)}
             placeholder="np. kalarepa, amarantus…"
+            ref={nameRef}
             autoFocus
             required
           />
@@ -85,6 +93,7 @@ export function AddFoodPage({ onBack, onAdded }: Props) {
         <label class="field">
           <span class="field-label">Notatka (opcjonalnie)</span>
           <textarea class="input" rows={2} value={notes} onInput={(e) => setNotes((e.target as HTMLTextAreaElement).value)} placeholder="np. podawać z kaszą jaglaną…" />
+          <NotePresets value={notes} onChange={setNotes} />
         </label>
 
         {error && <div class="form-error">{error}</div>}
