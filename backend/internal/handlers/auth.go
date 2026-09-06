@@ -46,6 +46,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		req.Username,
 	).Scan(&userID, &username, &passwordHash)
 	if err == sql.ErrNoRows {
+		log.Printf("[AUTH] failed login: unknown user %q from %s", req.Username, clientIP(r))
 		if h.Notify != nil {
 			h.Notify.Send("🔐 Nieudany login", fmt.Sprintf("Nikt taki jak \"%s\" — próba z %s", req.Username, clientIP(r)))
 		}
@@ -59,6 +60,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		log.Printf("[AUTH] failed login: bad password for %q from %s", username, clientIP(r))
 		if h.Notify != nil {
 			h.Notify.Send("🔐 Nieudany login", fmt.Sprintf("Złe hasło dla \"%s\" — próba z %s", req.Username, clientIP(r)))
 		}
@@ -72,7 +74,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[AUTH] login user=%s id=%d", username, userID)
+	log.Printf("[AUTH] login user=%s id=%d from %s", username, userID, clientIP(r))
 	if h.Notify != nil {
 		h.Notify.Send("📱 Login Rozszerzify", fmt.Sprintf("Zalogowano: %s z %s", username, clientIP(r)))
 	}
