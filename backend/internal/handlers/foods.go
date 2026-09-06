@@ -681,39 +681,60 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		foodsOK = 0
 	}
 
+	// Per-user dates (multi-account): fall back to the instance-wide env
+	// values when the user row has none (legacy single-account setup).
+	var userBirth, userStart sql.NullString
+	if err := h.DB.QueryRow(
+		`SELECT birth_date::text, start_date::text FROM rz_users WHERE id = $1`, uid,
+	).Scan(&userBirth, &userStart); err != nil {
+		log.Printf("[FOODS] stats user dates: %v", err)
+	}
+	startDate := h.Cfg.StartDate
+	if userStart.Valid && userStart.String != "" {
+		startDate = userStart.String
+	}
+	birthDate := h.Cfg.BirthDate
+	if userBirth.Valid && userBirth.String != "" {
+		birthDate = userBirth.String
+	}
+
 	var daysSinceStart, daysUntilStart int
 	started := false
-	if h.Cfg.StartDate != "" {
-		start := h.Cfg.StartTime()
-		// The diet may not have started yet (start date in the future): show a
-		// countdown instead of a day counter. All math on UTC midnights so the
-		// day boundaries are unambiguous.
-		y, m, d := time.Now().UTC().Date()
-		nowMid := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
-		sy, sm, sd := start.UTC().Date()
-		startMid := time.Date(sy, sm, sd, 0, 0, 0, 0, time.UTC)
+	if startDate != "" {
+		start, err := time.Parse("2006-01-02", startDate)
+		if err == nil {
+			// The diet may not have started yet (start date in the future): show a
+			// countdown instead of a day counter. All math on UTC midnights so the
+			// day boundaries are unambiguous.
+			y, m, d := time.Now().UTC().Date()
+			nowMid := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+			sy, sm, sd := start.UTC().Date()
+			startMid := time.Date(sy, sm, sd, 0, 0, 0, 0, time.UTC)
 
-		started = !nowMid.Before(startMid)
-		if started {
-			daysSinceStart = int(nowMid.Sub(startMid).Hours()/24) + 1
-		} else {
-			daysUntilStart = int(startMid.Sub(nowMid).Hours() / 24)
+			started = !nowMid.Before(startMid)
+			if started {
+				daysSinceStart = int(nowMid.Sub(startMid).Hours()/24) + 1
+			} else {
+				daysUntilStart = int(startMid.Sub(nowMid).Hours() / 24)
+			}
 		}
 	}
 
 	// Baby's age (calendar months + leftover days). Only when a birth date
 	// is configured (kept out of the public repo).
 	ageMonths, ageDays := 0, 0
-	if h.Cfg.BirthDate != "" {
-		ageMonths, ageDays = ageMonthsDays(h.Cfg.BirthTime(), time.Now())
+	if birthDate != "" {
+		if birth, err := time.Parse("2006-01-02", birthDate); err == nil {
+			ageMonths, ageDays = ageMonthsDays(birth, time.Now())
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"start_date":       h.Cfg.StartDate,
+		"start_date":       startDate,
 		"started":          started,
 		"days_since_start": daysSinceStart,
 		"days_until_start": daysUntilStart,
-		"birth_date":       h.Cfg.BirthDate,
+		"birth_date":       birthDate,
 		"baby_age_months":  ageMonths,
 		"baby_age_days":    ageDays,
 		"foods_total":       foodsTotal,

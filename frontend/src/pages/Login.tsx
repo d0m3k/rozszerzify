@@ -6,8 +6,10 @@ interface Props {
   onLogin: (auth: AuthState) => void;
 }
 
+const LAST_USER_KEY = 'rozszerzify_last_user';
+
 export function LoginPage({ onLogin }: Props) {
-  const [username, setUsername] = useState('krzysio');
+  const [username, setUsername] = useState(localStorage.getItem(LAST_USER_KEY) || 'krzysio');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -18,6 +20,7 @@ export function LoginPage({ onLogin }: Props) {
     setError('');
     try {
       const auth = await api.login(username.trim(), password);
+      localStorage.setItem(LAST_USER_KEY, username.trim());
       onLogin({ ...auth, userId: auth.user_id });
     } catch (err: any) {
       setError(err.message || 'Nie udało się zalogować');

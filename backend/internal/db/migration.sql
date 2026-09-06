@@ -42,5 +42,10 @@ CREATE TABLE IF NOT EXISTS rz_food_log (
 -- Column added later; keep for idempotency if the table already existed.
 ALTER TABLE rz_food_log ADD COLUMN IF NOT EXISTS rating INTEGER NOT NULL DEFAULT 3;
 
+-- Per-user dates (multi-account support). NULL → the instance-wide
+-- START_DATE / BIRTH_DATE env values are used as fallback (legacy).
+ALTER TABLE rz_users ADD COLUMN IF NOT EXISTS birth_date DATE;
+ALTER TABLE rz_users ADD COLUMN IF NOT EXISTS start_date DATE;
+
 CREATE INDEX IF NOT EXISTS idx_rz_food_log_food ON rz_food_log (food_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_rz_food_log_user_day ON rz_food_log (user_id, tried_at);

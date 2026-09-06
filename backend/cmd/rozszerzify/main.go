@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"rozszerzify/internal/config"
@@ -83,6 +84,10 @@ var starterFoods = []struct{ Name, Category string }{
 func main() {
 	seedFlag := flag.Bool("seed", false, "force seed even if data exists, then start")
 	remindFlag := flag.Bool("remind", false, "cron mode: send start-date reminder if today is a checkpoint, then exit")
+	newUser := flag.String("new-user", "", "create an additional account with this username, seed its starter foods, then exit")
+	newPass := flag.String("new-pass", "", "password for -new-user (required with -new-user)")
+	newBirth := flag.String("new-birth", "", "birth date YYYY-MM-DD for -new-user (optional)")
+	newStart := flag.String("new-start", "", "diet start date YYYY-MM-DD for -new-user (optional)")
 	flag.Parse()
 
 	_ = godotenv.Load()
@@ -102,6 +107,12 @@ func main() {
 		log.Fatalf("database: %v", err)
 	}
 	defer conn.Close()
+
+	// -new-user: create an additional account, then exit (does not start
+	// the server — safe to run while the service is up).
+	if *newUser != "" {
+		os.Exit(createUser(conn, *newUser, *newPass, *newBirth, *newStart))
+	}
 
 	if *seedFlag || dbIsEmpty(conn) {
 		if err := seedData(conn, cfg); err != nil {
@@ -267,7 +278,72 @@ func seedData(conn *sql.DB, cfg *config.Config) error {
 		}
 	}
 
-	// ── Starter foods ───────────────────────────────────────────────────
+	if err := seedStarterFoods(conn, uid); err != nil {
+		return err
+	}
+
+	if cfg.StartDate != "" {
+		log.Printf("  start date: %s", cfg.StartDate)
+	}
+	return nil
+}
+
+// createUser is the -new-user CLI mode: creates an additional account
+// (bcrypt password + optional birth/start dates) and seeds the same starter
+// food list, so the new kid gets a separate set of trials. Exits 0 on
+// success, 1 on failure. Safe to run while the service is up.
+// Usage on the server:
+//   cd /opt/rozszerzify && ./rozszerzify -new-user <name> -new-pass <pass> \
+//     [-new-birth YYYY-MM-DD] [-new-start YYYY-MM-DD]
+func createUser(conn *sql.DB, username, password, birthDate, startDate string) int {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" {
+		fmt.Println("new-user: username is required")
+		return 1
+	}
+	if password == "" {
+		fmt.Printf("new-user: password is required for %q\n", username)
+		return 1
+	}
+	for _, d := range []struct{ label, val string }{{"birth", birthDate}, {"start", startDate}} {
+		if d.val != "" {
+			if _, err := time.Parse("2006-01-02", d.val); err != nil {
+				fmt.Printf("new-user: bad %s date %q (want YYYY-MM-DD)\n", d.label, d.val)
+				return 1
+			}
+		}
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		fmt.Printf("new-user: bcrypt: %v\n", err)
+		return 1
+	}
+
+	var uid int
+	err = conn.QueryRow(
+		`INSERT INTO rz_users (username, password_hash, birth_date, start_date)
+			 VALUES ($1, $2, NULLIF($3, '')::date, NULLIF($4, '')::date)
+			 RETURNING id`,
+		username, string(hash), birthDate, startDate,
+	).Scan(&uid)
+	if err != nil {
+		fmt.Printf("new-user: create %q: %v (already exists?)\n", username, err)
+		return 1
+	}
+	fmt.Printf("new-user: account %q created (id=%d)\n", username, uid)
+
+	if err := seedStarterFoods(conn, uid); err != nil {
+		fmt.Printf("new-user: seed foods: %v\n", err)
+		return 1
+	}
+	fmt.Printf("new-user: done — %d starter foods, birth=%q start=%q\n", len(starterFoods), birthDate, startDate)
+	return 0
+}
+
+// seedStarterFoods installs the starter food list for a user that has no
+// foods yet. No-op when the user already has anything on their list.
+func seedStarterFoods(conn *sql.DB, uid int) error {
 	var foods int
 	if err := conn.QueryRow(`SELECT COUNT(*) FROM rz_foods WHERE user_id = $1`, uid).Scan(&foods); err != nil {
 		return fmt.Errorf("count foods: %w", err)
@@ -283,10 +359,6 @@ func seedData(conn *sql.DB, cfg *config.Config) error {
 			}
 		}
 		log.Printf("  %d starter foods added", len(starterFoods))
-	}
-
-	if cfg.StartDate != "" {
-		log.Printf("  start date: %s", cfg.StartDate)
 	}
 	return nil
 }
