@@ -90,7 +90,7 @@ export function FoodsPage({ foods, stats, onOpenDetail, onPlus }: Props) {
             {stats.birth_date && (
               <div class="stat-chip">
                 <b>{stats.baby_age_months} mies. {stats.baby_age_days > 0 ? `${stats.baby_age_days} dn.` : ''}</b>
-                <span>wiek Krzyśka</span>
+                <span>wiek malucha</span>
               </div>
             )}
             {stats.started ? (

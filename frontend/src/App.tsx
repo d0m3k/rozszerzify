@@ -193,6 +193,7 @@ export function App() {
         <div class="topbar-left">
           <span class="topbar-logo">🥣</span>
           <span class="topbar-title">Rozszerzify</span>
+          <span class="topbar-user">{auth.username}</span>
         </div>
         <button class="btn-ghost topbar-logout" onClick={handleLogout}>
           Wyloguj

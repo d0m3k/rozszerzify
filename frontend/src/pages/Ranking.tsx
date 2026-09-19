@@ -16,7 +16,7 @@ export function RankingPage({ ranking, loading, onOpenDetail }: Props) {
     <div class="page">
       <h2 class="page-title">🏆 Ranking — co zjada najlepiej</h2>
       <p class="page-subtitle">
-        Które jedzenie Krzyś zjada z największym apetytem? Średnia z ocen każdej próby.
+        Które jedzenie maluch zjada z największym apetytem? Średnia z ocen każdej próby.
       </p>
 
       {loading && <p class="muted">Ładowanie…</p>}

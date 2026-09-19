@@ -66,6 +66,19 @@ html, body {
 .topbar-left { display: flex; align-items: center; gap: 8px; }
 .topbar-logo { font-size: 24px; }
 .topbar-title { font-size: 20px; font-weight: 800; letter-spacing: -0.3px; }
+.topbar-user {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.05);
+  padding: 3px 9px;
+  border-radius: 999px;
+  text-transform: capitalize;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .topbar-logout { font-size: 13px; }
 
 /* === Buttons === */
