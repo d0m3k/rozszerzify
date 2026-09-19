@@ -91,6 +91,17 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
 
+  register: (data: { username: string; password: string; birth_date: string; start_date?: string; turnstile?: string }) =>
+    request<{ message: string }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Public runtime config — tells the frontend whether Turnstile is enabled
+  // (turnstile_site_key present) so the register form can render the widget.
+  getConfig: () =>
+    request<{ turnstile_site_key?: string }>('/api/config'),
+
   listFoods: () => request<Food[]>('/api/foods'),
   getFood: (id: number) => request<Food>(`/api/foods/${id}`),
   createFood: (data: { name: string; category: string; notes?: string; target?: number }) =>

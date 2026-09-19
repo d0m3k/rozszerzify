@@ -146,6 +146,21 @@ html, body {
   border-radius: 10px;
   font-size: 14px;
 }
+.form-success {
+  background: rgba(55, 151, 143, 0.12);
+  color: var(--teal-dark);
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+.auth-switch {
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0;
+}
 
 /* === Stats row === */
 .stats-row {

@@ -4,12 +4,14 @@ import { AuthState } from '../stores/auth';
 
 interface Props {
   onLogin: (auth: AuthState) => void;
+  onRegister: () => void;
+  registerPrefill?: string;
 }
 
 const LAST_USER_KEY = 'rozszerzify_last_user';
 
-export function LoginPage({ onLogin }: Props) {
-  const [username, setUsername] = useState(localStorage.getItem(LAST_USER_KEY) || 'krzysio');
+export function LoginPage({ onLogin, onRegister, registerPrefill }: Props) {
+  const [username, setUsername] = useState(registerPrefill || localStorage.getItem(LAST_USER_KEY) || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -64,6 +66,13 @@ export function LoginPage({ onLogin }: Props) {
         <button class="btn-primary btn-block" type="submit" disabled={busy}>
           {busy ? 'Logowanie…' : 'Zaloguj się'}
         </button>
+
+        <p class="auth-switch">
+          Nowy maluch?{' '}
+          <button type="button" class="link-btn" onClick={onRegister}>
+            Zarejestruj konto
+          </button>
+        </p>
       </form>
     </div>
   );

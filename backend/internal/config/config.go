@@ -19,6 +19,12 @@ type Config struct {
 	SeedPassword string
 	RemindDir    string // marker files for the -remind cron job
 
+	// Cloudflare Turnstile (bot protection on self-service registration).
+	// SiteKey is public — served to the frontend via /api/config; Secret
+	// stays server-side only.
+	TurnstileSiteKey string
+	TurnstileSecret  string
+
 	// Pushover (optional — notifications disabled unless both keys are set)
 	PushoverUserKey  string
 	PushoverAppToken string
@@ -38,6 +44,9 @@ func Load() *Config {
 
 		PushoverUserKey:  getEnv("PUSHOVER_USER_KEY", ""),
 		PushoverAppToken: getEnv("PUSHOVER_APP_TOKEN", ""),
+
+		TurnstileSiteKey: getEnv("TURNSTILE_SITE_KEY", ""),
+		TurnstileSecret:  getEnv("TURNSTILE_SECRET", ""),
 	}
 }
 

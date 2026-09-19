@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -19,6 +20,19 @@ func New(userKey, appToken string) *Notifier {
 // Enabled reports whether both keys are configured.
 func (n *Notifier) Enabled() bool {
 	return n.userKey != "" && n.appToken != ""
+}
+
+// UserRegistered notifies about a new self-service account (registration
+// via the web form). birthDate is the baby's birthday, when provided.
+func (n *Notifier) UserRegistered(username, birthDate string) {
+	if !n.Enabled() {
+		return
+	}
+	msg := fmt.Sprintf("Zarejestrował się: %s", username)
+	if birthDate != "" {
+		msg += fmt.Sprintf("\n👶 urodziny malucha: %s", birthDate)
+	}
+	n.Send("Nowe konto Rozszerzify 👶", msg)
 }
 
 // Send pushes a notification; failures are logged but never fatal.

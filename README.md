@@ -22,7 +22,7 @@ co mu najbardziej podchodzi.
 - **🏆 Ranking smaków** — średnia ocen, medale dla top 3
 - **Historia prób** — kiedy, z jaką notatką i oceną
 - **PWA** — instalacja na ekran główny, offline shell
-- **Konta**: wiele kont (pierwsze `krzysio`, hasło z `SEED_PASSWORD`; kolejne przez `-new-user`, niżej) — każdy maluch ma własną listę produktów, próby i daty
+- **Konta**: wielo-kontowe — pierwszy `krzysio` (hasło z `SEED_PASSWORD`), kolejne przez **samo-rejestrację w aplikacji** (odpowiednik flow z rybaspotting: Cloudflare Turnstile + data urodzenia malucha, powiadomienie Pushover przy rejestracji) albo przez `-new-user` na serwerze — każdy maluch ma własną listę produktów, próby i daty
 
 ## Szybki start (lokalnie)
 
@@ -44,8 +44,16 @@ Daty (urodziny / start diety) są per-konto — w kolumnach `birth_date` /
 setupu). Daty realnych dzieci trzymamy TYLKO na serwerze (w bazie) —
 nigdy w repo.
 
-Nowe konto tworzy się binarką na serwerze (nie rusza działającego
-serwera — sam tylko robi INSERT-y i kończy się):
+Nowe konto można założyć na dwa sposoby:
+
+1. **Z aplikacji** — link „Nowy maluch? Zarejestruj konto” na ekranie
+   logowania. Formularz: login, hasło, data urodzenia malucha (i opcjonalnie
+   start rozszerzania). Chroni to **Cloudflare Turnstile** (widget w formularzu,
+   weryfikacja tokena w API; przy niebieskonfigurowanym Turnstile, np. w
+   dev, rejestracja jest otwarta). O udanej rejestracji przychodzi
+   powiadomienie **Pushover**.
+2. **Binarką na serwerze** (nie rusza działającego serwera — sam tylko robi
+   INSERT-y i kończy się):
 
 ```bash
 ssh amy
@@ -80,6 +88,8 @@ Backend słucha na `127.0.0.1:8081` (8080 zajmuje rybaspotting).
 | Metoda | Ścieżka | Opis |
 |---|---|---|
 | POST | `/api/auth/login` | login + hasło → JWT (bezterminowy) |
+| POST | `/api/auth/register` | rejestracja konta (Turnstile + `birth_date`/`start_date`) |
+| GET | `/api/config` | publiczna konfiguracja (m.in. `turnstile_site_key`) |
 | GET | `/api/foods` | lista produktów (z agregatami ocen) |
 | POST | `/api/foods` | dodaj produkt |
 | GET/PUT/DELETE | `/api/foods/{id}` | szczegóły / edycja / usunięcie |

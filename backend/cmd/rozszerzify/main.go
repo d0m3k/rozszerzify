@@ -23,64 +23,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// starterFoods is installed on the very first boot when the food list is
-// empty. Every entry starts at 0 tries — the parent fills in what the kid
-// has already tried.
-var starterFoods = []struct{ Name, Category string }{
-	// alergeny (wprowadzać pojedynczo, po jednym na kilka dni,
-	// w małych ilościach — najważniejsza kategoria)
-	{"jajko (całe)", "alergeny"},
-	{"orzeszki ziemne", "alergeny"},
-	{"migdały", "alergeny"},
-	{"orzechy laskowe", "alergeny"},
-	{"sezam (tahini)", "alergeny"},
-	{"mleko krowie (do picia)", "alergeny"},
-	{"gluten (kasza manna)", "alergeny"},
-	{"soja (tofu)", "alergeny"},
-	{"krewetki", "alergeny"},
-	// warzywa
-	{"marchewka", "warzywa"},
-	{"ziemniak", "warzywa"},
-	{"brokuł", "warzywa"},
-	{"kalafior", "warzywa"},
-	{"dynia", "warzywa"},
-	{"cukinia", "warzywa"},
-	{"batat", "warzywa"},
-	{"groszek zielony", "warzywa"},
-	{"burak", "warzywa"},
-	{"pietruszka", "warzywa"},
-	{"awokado", "warzywa"},
-	// owoce
-	{"jabłko", "owoce"},
-	{"gruszka", "owoce"},
-	{"banan", "owoce"},
-	{"morela", "owoce"},
-	{"brzoskwinia", "owoce"},
-	{"śliwka", "owoce"},
-	{"malina", "owoce"},
-	{"borówka", "owoce"},
-	{"mango", "owoce"},
-	// kasze i zboża
-	{"kasza jaglana", "kasze i zboża"},
-	{"kaszka ryżowa", "kasze i zboża"},
-	{"kaszka kukurydziana", "kasze i zboża"},
-	{"płatki owsiane", "kasze i zboża"},
-	// mięso i ryby
-	{"indyk", "mięso i ryby"},
-	{"kurczak", "mięso i ryby"},
-	{"cielęcina", "mięso i ryby"},
-	{"łosoś", "mięso i ryby"},
-	{"dorsz", "mięso i ryby"},
-	{"żółtko jaja", "mięso i ryby"},
-	// nabiał
-	{"jogurt naturalny", "nabiał"},
-	{"twarożek", "nabiał"},
-	// inne
-	{"oliwa z oliwek", "inne"},
-	{"olej rzepakowy", "inne"},
-	{"siemię lniane", "inne"},
-}
-
 func main() {
 	seedFlag := flag.Bool("seed", false, "force seed even if data exists, then start")
 	remindFlag := flag.Bool("remind", false, "cron mode: send start-date reminder if today is a checkpoint, then exit")
@@ -139,6 +81,10 @@ func main() {
 	r.Use(corsMiddleware)
 
 	r.Route("/api", func(r chi.Router) {
+		// Public: /config exposes the Turnstile site key (when enabled);
+		// registration is protected by Turnstile itself, login by credentials.
+		r.Get("/config", authH.PublicConfig)
+		r.Post("/auth/register", authH.Register)
 		r.Post("/auth/login", authH.Login)
 
 		r.Group(func(r chi.Router) {
@@ -278,7 +224,7 @@ func seedData(conn *sql.DB, cfg *config.Config) error {
 		}
 	}
 
-	if err := seedStarterFoods(conn, uid); err != nil {
+	if err := db.SeedStarterFoods(conn, uid); err != nil {
 		return err
 	}
 
@@ -333,32 +279,10 @@ func createUser(conn *sql.DB, username, password, birthDate, startDate string) i
 	}
 	fmt.Printf("new-user: account %q created (id=%d)\n", username, uid)
 
-	if err := seedStarterFoods(conn, uid); err != nil {
+	if err := db.SeedStarterFoods(conn, uid); err != nil {
 		fmt.Printf("new-user: seed foods: %v\n", err)
 		return 1
 	}
-	fmt.Printf("new-user: done — %d starter foods, birth=%q start=%q\n", len(starterFoods), birthDate, startDate)
+	fmt.Printf("new-user: done — %d starter foods, birth=%q start=%q\n", len(db.StarterFoods), birthDate, startDate)
 	return 0
-}
-
-// seedStarterFoods installs the starter food list for a user that has no
-// foods yet. No-op when the user already has anything on their list.
-func seedStarterFoods(conn *sql.DB, uid int) error {
-	var foods int
-	if err := conn.QueryRow(`SELECT COUNT(*) FROM rz_foods WHERE user_id = $1`, uid).Scan(&foods); err != nil {
-		return fmt.Errorf("count foods: %w", err)
-	}
-	if foods == 0 {
-		for _, f := range starterFoods {
-			if _, err := conn.Exec(
-				`INSERT INTO rz_foods (user_id, name, category) VALUES ($1, $2, $3)
-				 ON CONFLICT (user_id, name) DO NOTHING`,
-				uid, f.Name, f.Category,
-			); err != nil {
-				log.Printf("  seed food %q: %v", f.Name, err)
-			}
-		}
-		log.Printf("  %d starter foods added", len(starterFoods))
-	}
-	return nil
 }

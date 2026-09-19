@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { loadAuth, clearAuth, saveAuth, AuthState } from './stores/auth';
 import { api, Food, LogEntry, RankingEntry, Stats, normalize } from './api';
 import { LoginPage } from './pages/Login';
+import { RegisterPage } from './pages/Register';
 import { FoodsPage } from './pages/Foods';
 import { FoodDetailPage } from './pages/FoodDetail';
 import { AddFoodPage } from './pages/AddFood';
@@ -43,6 +44,8 @@ export function App() {
   const [sheetFor, setSheetFor] = useState<Food | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [tick, setTick] = useState(0);
+  const [showRegister, setShowRegister] = useState(false);
+  const [registerPrefill, setRegisterPrefill] = useState('');
   const toastTimer = useRef<number | null>(null);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
@@ -162,7 +165,21 @@ export function App() {
     return (
       <div class="app-container">
         <div class="app-content">
-          <LoginPage onLogin={handleLogin} />
+          {showRegister ? (
+            <RegisterPage
+              prefill={registerPrefill}
+              onDone={(u) => {
+                if (u) setRegisterPrefill(u);
+                setShowRegister(false);
+              }}
+            />
+          ) : (
+            <LoginPage
+              onLogin={handleLogin}
+              onRegister={() => setShowRegister(true)}
+              registerPrefill={registerPrefill}
+            />
+          )}
         </div>
       </div>
     );
