@@ -1,11 +1,13 @@
 import { useState } from 'preact/hooks';
 import {
+  Category,
   Food,
   Stats,
   STATUS_META,
   SortMode,
   categoryEmoji,
   categoryLabel,
+  foodCategories,
   foodStatus,
   progressPct,
   ratingMeta,
@@ -15,13 +17,17 @@ import {
 interface Props {
   foods: Food[];
   stats: Stats | null;
+  categories: Category[];
   onOpenDetail: (id: number) => void;
   onPlus: (food: Food) => void;
+  onRenameCategory: (id: number, name: string) => Promise<void>;
+  onDeleteCategory: (id: number) => Promise<void>;
 }
 
 const SORT_KEY = 'rz_sort';
+const COLLAPSED_KEY = 'rz_collapsed_cats';
 
-function FoodRow({ f, showCat, onOpen, onPlus }: { f: Food; showCat: boolean; onOpen: (id: number) => void; onPlus: (f: Food) => void }) {
+function FoodRow({ f, cats, showCat, onOpen, onPlus }: { f: Food; cats: Category[]; showCat: boolean; onOpen: (id: number) => void; onPlus: (f: Food) => void }) {
   const st = foodStatus(f);
   const meta = STATUS_META[st];
   const fill = st === 'ok' ? 'progress-fill done' : st === 'revisit' ? 'progress-fill revisit' : 'progress-fill';
@@ -36,7 +42,11 @@ function FoodRow({ f, showCat, onOpen, onPlus }: { f: Food; showCat: boolean; on
           )}
           <span class={`status-badge ${meta.cls}`}>{meta.label}</span>
         </div>
-        {showCat && <div class="food-cat">{categoryEmoji(f.category)} {categoryLabel(f.category)}</div>}
+        {showCat && (
+          <div class="food-cat">
+            {foodCategories(f).map((c) => `${categoryEmoji(c, cats)} ${categoryLabel(c)}`).join(' · ')}
+          </div>
+        )}
         {f.recent_ratings.length > 0 && (
           <div class="minki" aria-label="ostatnie oceny (od najstarszej)">
             {[...f.recent_ratings].reverse().slice(0, 5).map((r, i) => (
@@ -71,16 +81,68 @@ function FoodRow({ f, showCat, onOpen, onPlus }: { f: Food; showCat: boolean; on
   );
 }
 
-export function FoodsPage({ foods, stats, onOpenDetail, onPlus }: Props) {
+export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onRenameCategory, onDeleteCategory }: Props) {
   const [sort, setSort] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) as SortMode) || 'priorytet');
+  // Categories the parent folded away in the "Kategorie" view (persisted, so
+  // the list keeps the shape they left it in).
+  const [collapsed, setCollapsed] = useState<string[]>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter((c) => typeof c === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [catError, setCatError] = useState('');
+
+  function setCollapsedCats(next: string[]) {
+    setCollapsed(next);
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+  }
+
+  function toggleCat(cat: string) {
+    setCollapsedCats(collapsed.includes(cat) ? collapsed.filter((c) => c !== cat) : [...collapsed, cat]);
+  }
 
   function changeSort(s: SortMode) {
     setSort(s);
     localStorage.setItem(SORT_KEY, s);
   }
 
-  const { groups, list } = sortFoods(foods, sort);
+  function openEditor(cat: string) {
+    setEditing(cat);
+    setDraft(cat);
+    setConfirmDelete(false);
+    setCatError('');
+  }
+
+  async function saveRename(e: Event, id: number) {
+    e.preventDefault();
+    const name = draft.trim();
+    if (!name) return;
+    try {
+      await onRenameCategory(id, name);
+      setEditing(null);
+    } catch (err: unknown) {
+      setCatError(err instanceof Error ? err.message : 'Nie udało się zmienić nazwy');
+    }
+  }
+
+  async function removeCategory(id: number) {
+    try {
+      await onDeleteCategory(id);
+      setEditing(null);
+    } catch (err: unknown) {
+      setCatError(err instanceof Error ? err.message : 'Nie udało się usunąć kategorii');
+    }
+  }
+
+  const { groups, list } = sortFoods(foods, sort, categories.map((c) => c.name));
   const okCount = foods.filter((f) => foodStatus(f) === 'ok').length;
+  const foldedCount = groups ? groups.filter(([cat]) => collapsed.includes(cat)).length : 0;
 
   return (
     <div class="page">
@@ -151,25 +213,93 @@ export function FoodsPage({ foods, stats, onOpenDetail, onPlus }: Props) {
       {list && (
         <div class="food-list">
           {list.map((f) => (
-            <FoodRow key={f.id} f={f} showCat={true} onOpen={onOpenDetail} onPlus={onPlus} />
+            <FoodRow key={f.id} f={f} cats={categories} showCat={true} onOpen={onOpenDetail} onPlus={onPlus} />
           ))}
         </div>
       )}
 
+      {groups && (
+        <div class="groups-bar">
+          <button
+            class="group-toggle-all"
+            onClick={() => setCollapsedCats(foldedCount > 0 ? [] : groups.map(([cat]) => cat))}
+          >
+            {foldedCount > 0 ? '↕ Rozwiń wszystko' : '↕ Zwiń wszystko'}
+          </button>
+        </div>
+      )}
+
       {groups &&
-        groups.map(([cat, items]) => (
-          <section class="food-group" key={cat}>
-            <h3 class="group-title">
-              {categoryEmoji(cat)} {categoryLabel(cat)}
-              <span class="group-count">
-                {items.filter((f) => foodStatus(f) === 'ok').length}/{items.length}
-              </span>
-            </h3>
-            {items.map((f) => (
-              <FoodRow key={f.id} f={f} showCat={false} onOpen={onOpenDetail} onPlus={onPlus} />
-            ))}
-          </section>
-        ))}
+        groups.map(([cat, items]) => {
+          const folded = collapsed.includes(cat);
+          const meta = categories.find((c) => c.name === cat);
+          const isEditing = editing === cat;
+          return (
+            <section class="food-group" key={cat}>
+              <div class="group-head">
+                <button
+                  class="group-title"
+                  aria-expanded={!folded}
+                  title={folded ? 'Rozwiń kategorię' : 'Zwiń kategorię'}
+                  onClick={() => toggleCat(cat)}
+                >
+                  <span class="group-chevron">{folded ? '▶' : '▼'}</span>
+                  {categoryEmoji(cat, categories)} {categoryLabel(cat)}
+                  <span class="group-count">
+                    {items.filter((f) => foodStatus(f) === 'ok').length}/{items.length}
+                  </span>
+                </button>
+                {meta && (
+                  <button
+                    class="group-edit"
+                    aria-label="edytuj kategorię"
+                    onClick={() => (isEditing ? setEditing(null) : openEditor(cat))}
+                  >
+                    {isEditing ? '×' : '✏️'}
+                  </button>
+                )}
+              </div>
+              {isEditing && meta && (
+                <div class="cat-edit">
+                  <form class="cat-edit-row" onSubmit={(e) => saveRename(e, meta.id)}>
+                    <input
+                      class="input"
+                      value={draft}
+                      onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
+                      aria-label="nazwa kategorii"
+                    />
+                    <button class="btn-primary" type="submit" disabled={!draft.trim() || draft.trim() === cat}>
+                      Zapisz
+                    </button>
+                  </form>
+                  {confirmDelete ? (
+                    <div class="cat-edit-row">
+                      <span class="cat-edit-warn">Usunąć „{cat}”? Produkty zostaną w innych kategoriach.</span>
+                      <button class="btn-danger" onClick={() => removeCategory(meta.id)}>
+                        Tak, usuń
+                      </button>
+                      <button class="btn-ghost" onClick={() => setConfirmDelete(false)}>
+                        Nie
+                      </button>
+                    </div>
+                  ) : (
+                    <button class="link-btn cat-edit-del" onClick={() => setConfirmDelete(true)}>
+                      Usuń kategorię
+                    </button>
+                  )}
+                  {catError && <div class="form-error">{catError}</div>}
+                </div>
+              )}
+              {folded ? (
+                <p class="group-collapsed-hint">zwinięte — tapnij, żeby rozwinąć</p>
+              ) : (
+                items.map((f) => (
+                  <FoodRow key={f.id} f={f} cats={categories} showCat={false} onOpen={onOpenDetail} onPlus={onPlus} />
+                ))
+              )}
+            </section>
+          );
+        })}
     </div>
   );
 }

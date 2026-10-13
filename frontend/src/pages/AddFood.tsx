@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, CATEGORY_ORDER, CATEGORIES, categoryEmoji } from '../api';
+import { Category, api } from '../api';
 import { NotePresets } from '../components/NotePresets';
+import { CategoryPicker } from '../components/CategoryPicker';
 
 interface Props {
+  categories: Category[];
   onBack: () => void;
   onAdded: () => void;
+  onCreateCategory: (name: string) => Promise<Category>;
 }
 
 const DEFAULT_TARGET = 15;
 
-export function AddFoodPage({ onBack, onAdded }: Props) {
+export function AddFoodPage({ categories, onBack, onAdded, onCreateCategory }: Props) {
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('owoce');
+  const [cats, setCats] = useState<string[]>(['owoce']);
   const [target, setTarget] = useState(String(DEFAULT_TARGET));
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
@@ -32,16 +35,21 @@ export function AddFoodPage({ onBack, onAdded }: Props) {
     try {
       await api.createFood({
         name: n,
-        category,
+        categories: cats,
         target: Math.max(1, parseInt(target) || DEFAULT_TARGET),
         notes,
       });
       onAdded();
-    } catch (err: any) {
-      setError(err.message || 'Nie udało się dodać');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Nie udało się dodać');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function addCategory(name: string) {
+    const created = await onCreateCategory(name);
+    setCats((prev) => [...prev, created.name]);
   }
 
   return (
@@ -72,19 +80,8 @@ export function AddFoodPage({ onBack, onAdded }: Props) {
         </label>
 
         <div class="field">
-          <span class="field-label">Kategoria</span>
-          <div class="chip-grid">
-            {CATEGORY_ORDER.map((c) => (
-              <button
-                type="button"
-                key={c}
-                class={category === c ? 'chip chip-active' : 'chip'}
-                onClick={() => setCategory(c)}
-              >
-                {categoryEmoji(c)} {CATEGORIES[c].label}
-              </button>
-            ))}
-          </div>
+          <span class="field-label">Kategorie</span>
+          <CategoryPicker categories={categories} selected={cats} onChange={setCats} onCreate={addCategory} />
         </div>
 
         <label class="field">

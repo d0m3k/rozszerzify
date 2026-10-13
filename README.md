@@ -21,6 +21,15 @@ co mu najbardziej podchodzi.
 - **Cel prób** (domyślnie 15) — pasek postępu na każdym produkcie
 - **🏆 Ranking smaków** — średnia ocen, medale dla top 3
 - **Historia prób** — kiedy, z jaką notatką i oceną
+- **🕒 Data próby do ustawienia** — przy zapisie próby można cofnąć się w czasie
+  („zjadł to wczoraj na kolację”), domyślnie *teraz*; kolejność historii i
+  „ostatniej próby” liczy się po dacie zjedzenia, nie po dacie wpisania
+- **✏️ Edycja produktu** — kategoria, cel prób i notatki do zmiany w każdym momencie
+- **🗂️ Własne kategorie** — każdy maluch ma swój zestaw; kategorię można dodać
+  wprost z formularza, zmienić jej nazwę albo usunąć (✏️ przy nagłówku grupy)
+- **🍳 Produkt w kilku kategoriach** — np. jajko: *alergeny* + *nabiał*; w widoku
+  „Kategorie” pokazuje się w każdej z nich, a pierwsza wybrana jest główną
+  (od niej idzie emoji i kolejność na liście)
 - **PWA** — instalacja na ekran główny, offline shell
 - **Konta**: wielo-kontowe — pierwszy `krzysio` (hasło z `SEED_PASSWORD`), kolejne przez **samo-rejestrację w aplikacji** (odpowiednik flow z rybaspotting: Cloudflare Turnstile + data urodzenia malucha, powiadomienie Pushover przy rejestracji) albo przez `-new-user` na serwerze — każdy maluch ma własną listę produktów, próby i daty
 
@@ -90,10 +99,13 @@ Backend słucha na `127.0.0.1:8081` (8080 zajmuje rybaspotting).
 | POST | `/api/auth/login` | login + hasło → JWT (bezterminowy) |
 | POST | `/api/auth/register` | rejestracja konta (Turnstile + `birth_date`/`start_date`) |
 | GET | `/api/config` | publiczna konfiguracja (m.in. `turnstile_site_key`) |
-| GET | `/api/foods` | lista produktów (z agregatami ocen) |
-| POST | `/api/foods` | dodaj produkt |
+| GET | `/api/foods` | lista produktów (z agregatami ocen i `categories[]`) |
+| POST | `/api/foods` | dodaj produkt (`{name, categories: [...], notes?, target?}`) |
 | GET/PUT/DELETE | `/api/foods/{id}` | szczegóły / edycja / usunięcie |
-| POST | `/api/foods/{id}/try` | `{rating: 1–4, note?}` — zarejestruj próbę |
+| GET | `/api/categories` | kategorie konta (z `food_count`) |
+| POST | `/api/categories` | nowa kategoria (`{name, emoji?}`) |
+| PUT/DELETE | `/api/categories/{id}` | zmiana nazwy / usunięcie (produkty wracają do pozostałych kategorii, w skrajnym razie do `inne`) |
+| POST | `/api/foods/{id}/try` | `{rating: 1–4, note?, tried_at?}` — zarejestruj próbę (`tried_at` = RFC3339, domyślnie teraz; nie z przyszłości) |
 | POST | `/api/foods/{id}/untry` | cofnij ostatnią próbę (pomyłka) |
 | GET | `/api/foods/{id}/log` | historia prób |
 | GET | `/api/ranking` | produkty wg średniej oceny |

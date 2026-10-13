@@ -4,6 +4,7 @@ export interface Food {
   id: number;
   name: string;
   category: string;
+  categories: string[];
   tries: number;
   target: number;
   notes: string;
@@ -56,6 +57,15 @@ export interface AuthResponse {
   username: string;
 }
 
+/** One editable grouping of foods (per account). */
+export interface Category {
+  id: number;
+  name: string;
+  emoji: string;
+  sort_order: number;
+  food_count: number;
+}
+
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const token = localStorage.getItem('raz_token');
   const headers: Record<string, string> = { ...opts.headers };
@@ -104,16 +114,23 @@ export const api = {
 
   listFoods: () => request<Food[]>('/api/foods'),
   getFood: (id: number) => request<Food>(`/api/foods/${id}`),
-  createFood: (data: { name: string; category: string; notes?: string; target?: number }) =>
+  createFood: (data: { name: string; categories: string[]; notes?: string; target?: number }) =>
     request<Food>('/api/foods', { method: 'POST', body: JSON.stringify(data) }),
-  updateFood: (id: number, data: { name?: string; category?: string; notes?: string; target?: number }) =>
+  updateFood: (id: number, data: { name?: string; categories?: string[]; notes?: string; target?: number }) =>
     request<Food>(`/api/foods/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteFood: (id: number) => request<{ ok: boolean }>(`/api/foods/${id}`, { method: 'DELETE' }),
 
-  tryFood: (id: number, rating: number, note?: string) =>
+  listCategories: () => request<Category[]>('/api/categories'),
+  createCategory: (name: string, emoji?: string) =>
+    request<Category>('/api/categories', { method: 'POST', body: JSON.stringify({ name, emoji }) }),
+  updateCategory: (id: number, data: { name?: string; emoji?: string; sort_order?: number }) =>
+    request<Category>(`/api/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteCategory: (id: number) => request<{ ok: boolean }>(`/api/categories/${id}`, { method: 'DELETE' }),
+
+  tryFood: (id: number, rating: number, note?: string, triedAt?: string) =>
     request<Food>(`/api/foods/${id}/try`, {
       method: 'POST',
-      body: JSON.stringify({ rating, note: note || '' }),
+      body: JSON.stringify({ rating, note: note || '', tried_at: triedAt || '' }),
     }),
   untryFood: (id: number) => request<Food>(`/api/foods/${id}/untry`, { method: 'POST' }),
 
@@ -152,8 +169,16 @@ export const CATEGORIES: Record<string, { label: string; emoji: string }> = {
 export function categoryLabel(cat: string): string {
   return CATEGORIES[cat]?.label ?? cat;
 }
-export function categoryEmoji(cat: string): string {
-  return CATEGORIES[cat]?.emoji ?? '✨';
+
+// Emoji resolution: the account's own category first (parents can pick none,
+// presets carry one), then the built-in map, then a neutral sparkle.
+export function categoryEmoji(cat: string, cats?: Category[]): string {
+  return cats?.find((c) => c.name === cat)?.emoji || CATEGORIES[cat]?.emoji || '✨';
+}
+
+/** Categories of a food, always at least one (the primary). */
+export function foodCategories(f: Food): string[] {
+  return f.categories && f.categories.length > 0 ? f.categories : [f.category];
 }
 
 // Per-food emoji, falling back to the category emoji.
@@ -176,13 +201,16 @@ const FOOD_EMOJI: Record<string, string> = {
   'oliwa z oliwek': '🫒', 'olej rzepakowy': '💧', 'siemię lniane': '🌰',
 };
 
-export function foodEmoji(name: string, category: string): string {
-  return FOOD_EMOJI[name.toLowerCase()] ?? categoryEmoji(category);
+export function foodEmoji(name: string, category: string, cats?: Category[]): string {
+  return FOOD_EMOJI[name.toLowerCase()] ?? categoryEmoji(category, cats);
 }
 
-export function sortCategories(list: string[]): string[] {
-  const known = CATEGORY_ORDER.filter((c) => list.includes(c));
-  const other = list.filter((c) => !CATEGORY_ORDER.includes(c)).sort();
+// Order for the group list: the account's own category order when known,
+// otherwise the built-in order with unknown names sorted alphabetically after.
+export function sortCategories(list: string[], order?: string[]): string[] {
+  const rank = order ?? CATEGORY_ORDER;
+  const known = rank.filter((c) => list.includes(c));
+  const other = list.filter((c) => !rank.includes(c)).sort();
   return [...known, ...other];
 }
 
@@ -232,7 +260,7 @@ export function priorityTier(f: Food): number {
 
 export type SortMode = 'priorytet' | 'kategorie' | 'az';
 
-export function sortFoods(foods: Food[], mode: SortMode): { groups?: [string, Food[]][]; list?: Food[] } {
+export function sortFoods(foods: Food[], mode: SortMode, order?: string[]): { groups?: [string, Food[]][]; list?: Food[] } {
   if (mode === 'priorytet') {
     const list = [...foods].sort((a, b) => {
       const t = priorityTier(a) - priorityTier(b);
@@ -245,11 +273,11 @@ export function sortFoods(foods: Food[], mode: SortMode): { groups?: [string, Fo
   if (mode === 'az') {
     return { list: [...foods].sort((a, b) => a.name.localeCompare(b.name, 'pl')) };
   }
-  // kategorie
+  // kategorie — a food in several categories shows up under each of them
   const lists: Record<string, Food[]> = {};
-  for (const f of foods) (lists[f.category] ||= []).push(f);
+  for (const f of foods) for (const c of foodCategories(f)) (lists[c] ||= []).push(f);
   for (const l of Object.values(lists)) l.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
-  const groups = sortCategories(Object.keys(lists)).map((c) => [c, lists[c]] as [string, Food[]]);
+  const groups = sortCategories(Object.keys(lists), order).map((c) => [c, lists[c]] as [string, Food[]]);
   return { groups };
 }
 

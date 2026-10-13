@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Food, LogEntry, RATINGS, STATUS_META, api, categoryLabel, fmtDateTime, foodEmoji, foodStatus, progressPct, ratingMeta } from '../api';
+import { Category, Food, LogEntry, RATINGS, STATUS_META, api, categoryEmoji, categoryLabel, fmtDateTime, foodCategories, foodEmoji, foodStatus, progressPct, ratingMeta } from '../api';
+import { CategoryPicker } from '../components/CategoryPicker';
 
 interface Props {
   food: Food;
+  categories: Category[];
   onBack: () => void;
   onPlus: () => void;
   onRemoveLog: (entry: LogEntry) => void;
-  onSave: (patch: { notes?: string; target?: number }) => Promise<void>;
+  onSave: (patch: { categories?: string[]; notes?: string; target?: number }) => Promise<void>;
+  onCreateCategory: (name: string) => Promise<Category>;
   onDelete: () => void;
 }
 
-export function FoodDetailPage({ food, onBack, onPlus, onRemoveLog, onSave, onDelete }: Props) {
+export function FoodDetailPage({ food, categories, onBack, onPlus, onRemoveLog, onSave, onCreateCategory, onDelete }: Props) {
   const st = foodStatus(food);
   const [log, setLog] = useState<LogEntry[] | null>(null);
+  const [cats, setCats] = useState(foodCategories(food));
   const [notes, setNotes] = useState(food.notes);
   const [target, setTarget] = useState(String(food.target));
   const [busy, setBusy] = useState(false);
@@ -34,7 +38,7 @@ export function FoodDetailPage({ food, onBack, onPlus, onRemoveLog, onSave, onDe
   async function save() {
     setBusy(true);
     try {
-      await onSave({ notes, target: Math.max(1, parseInt(target) || 15) });
+      await onSave({ categories: cats, notes, target: Math.max(1, parseInt(target) || 15) });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } finally {
@@ -45,6 +49,11 @@ export function FoodDetailPage({ food, onBack, onPlus, onRemoveLog, onSave, onDe
   // fetch log when food.id changes
 
   const maxRatingCount = Math.max(1, ...RATINGS.map((r) => log?.filter((l) => l.rating === r.v).length ?? 0));
+
+  async function addCategory(name: string) {
+    const created = await onCreateCategory(name);
+    setCats((prev) => (prev.includes(created.name) ? prev : [...prev, created.name]));
+  }
 
   return (
     <div class="page">
@@ -57,7 +66,9 @@ export function FoodDetailPage({ food, onBack, onPlus, onRemoveLog, onSave, onDe
             {foodEmoji(food.name, food.category)} {food.name}
             <span class={`status-badge ${STATUS_META[st].cls}`}>{STATUS_META[st].label}</span>
           </h2>
-          <span class="detail-cat">{categoryLabel(food.category)}</span>
+          <span class="detail-cat">
+            {foodCategories(food).map((c) => `${categoryEmoji(c, categories)} ${categoryLabel(c)}`).join(' · ')}
+          </span>
         </div>
       </div>
 
@@ -117,6 +128,10 @@ export function FoodDetailPage({ food, onBack, onPlus, onRemoveLog, onSave, onDe
 
       <section class="card">
         <h3 class="card-title">Ustawienia</h3>
+        <div class="field">
+          <span class="field-label">Kategorie</span>
+          <CategoryPicker categories={categories} selected={cats} onChange={setCats} onCreate={addCategory} />
+        </div>
         <label class="field">
           <span class="field-label">Cel (ile prób zanim uznamy, że nie smakuje)</span>
           <input class="input" type="number" min={1} max={100} value={target} onInput={(e) => setTarget((e.target as HTMLInputElement).value)} />

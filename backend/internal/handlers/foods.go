@@ -25,6 +25,11 @@ const (
 	ratingDefault = 3
 )
 
+// Bounds for a client-supplied try timestamp (see tryRequest.TriedAt).
+const triedAtFutureSkew = 5 * time.Minute
+
+var minTriedAt = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
 type FoodHandler struct {
 	DB     *sql.DB
 	Cfg    *config.Config
@@ -35,6 +40,7 @@ type Food struct {
 	ID          int        `json:"id"`
 	Name        string     `json:"name"`
 	Category    string     `json:"category"`
+	Categories  []string   `json:"categories"`
 	Tries       int        `json:"tries"`
 	Target      int        `json:"target"`
 	Notes       string     `json:"notes"`
@@ -47,8 +53,6 @@ type Food struct {
 	RatingCount int     `json:"rating_count"`
 	RatingSum   int     `json:"rating_sum"`
 
-	// Note of the most recent try (per-serving note, more important than the
-	// food-level note for quick glances)
 	// Note of the most recent try (per-serving note, more important than the
 	// food-level note for quick glances)
 	LastNote string `json:"last_note"`
@@ -80,24 +84,32 @@ type rankingEntry struct {
 func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 	f := &Food{}
 	var recent pq.Int64Array
+	var categories pq.StringArray
 	err := conn.QueryRow(
 		`SELECT f.id, f.name, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
-		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), ''),
-		        COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0),
-		        COALESCE((SELECT ARRAY(SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 5)), ARRAY[]::int[])
+		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), ''),
+		        COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), 0),
+		        COALESCE((SELECT ARRAY(SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 5)), ARRAY[]::int[]),
+		        COALESCE((SELECT ARRAY(
+		            SELECT c.name FROM rz_food_categories fc
+		            JOIN rz_categories c ON c.id = fc.category_id
+		            WHERE fc.food_id = f.id
+		            ORDER BY (c.name <> f.category), c.sort_order, c.name
+		        )), ARRAY[]::text[])
 		 FROM rz_foods f
 		 WHERE f.id = $1 AND f.user_id = $2`,
 		id, userID,
 	).Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent)
+		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories)
 	if err != nil {
 		log.Printf("[FOODS] fetch id=%d: %v", id, err)
 		return nil, err
 	}
 	f.RecentRatings = intSlice(recent)
+	f.Categories = categorySlice(categories)
 	return f, nil
 }
 
@@ -110,9 +122,15 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
-		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), ''),
-		        COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0),
-		        COALESCE((SELECT ARRAY(SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 5)), ARRAY[]::int[])
+		        COALESCE((SELECT l.note FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), ''),
+		        COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), 0),
+		        COALESCE((SELECT ARRAY(SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 5)), ARRAY[]::int[]),
+		        COALESCE((SELECT ARRAY(
+		            SELECT c.name FROM rz_food_categories fc
+		            JOIN rz_categories c ON c.id = fc.category_id
+		            WHERE fc.food_id = f.id
+		            ORDER BY (c.name <> f.category), c.sort_order, c.name
+		        )), ARRAY[]::text[])
 		 FROM rz_foods f
 		 WHERE f.user_id = $1
 		 ORDER BY f.id`,
@@ -129,12 +147,14 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var f Food
 		var recent pq.Int64Array
+		var categories pq.StringArray
 		if err := rows.Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent); err != nil {
+			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories); err != nil {
 			log.Printf("[FOODS] scan: %v", err)
 			continue
 		}
 		f.RecentRatings = intSlice(recent)
+		f.Categories = categorySlice(categories)
 		foods = append(foods, f)
 	}
 	writeJSON(w, http.StatusOK, foods)
@@ -160,10 +180,11 @@ func (h *FoodHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createFoodRequest struct {
-	Name     string `json:"name"`
-	Category string `json:"category"`
-	Notes    string `json:"notes"`
-	Target   int    `json:"target"`
+	Name       string   `json:"name"`
+	Category   string   `json:"category"`   // legacy single category
+	Categories []string `json:"categories"` // full set; first one is primary
+	Notes      string   `json:"notes"`
+	Target     int      `json:"target"`
 }
 
 // Create adds a new food to the list.
@@ -183,7 +204,10 @@ func (h *FoodHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name too long")
 		return
 	}
-	category := normalizeCategory(req.Category)
+	categories := []string{normalizeCategory(req.Category)}
+	if len(req.Categories) > 0 {
+		categories = normalizeCategoryList(req.Categories)
+	}
 	notes := strings.TrimSpace(req.Notes)
 	if len([]rune(notes)) > 500 {
 		writeErr(w, http.StatusBadRequest, "notes too long")
@@ -197,11 +221,19 @@ func (h *FoodHandler) Create(w http.ResponseWriter, r *http.Request) {
 		target = 100
 	}
 
+	uid := contextUserID(r)
+	tx, err := h.DB.Begin()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer tx.Rollback()
+
 	var id int
-	err := h.DB.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO rz_foods (user_id, name, category, notes, target) VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (user_id, name) DO NOTHING RETURNING id`,
-		contextUserID(r), name, category, notes, target,
+		uid, name, categories[0], notes, target,
 	).Scan(&id)
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusConflict, "already on the list")
@@ -213,7 +245,21 @@ func (h *FoodHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := h.fetchFood(h.DB, id, contextUserID(r))
+	if ok, err := setFoodCategories(tx, uid, id, categories); err != nil {
+		log.Printf("[FOODS] create categories: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	} else if !ok {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	f, err := h.fetchFood(h.DB, id, uid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
@@ -222,8 +268,9 @@ func (h *FoodHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 type tryRequest struct {
-	Note   string `json:"note"`
-	Rating *int   `json:"rating"` // 1..4; absent → 3 (smakuje)
+	Note    string `json:"note"`
+	Rating  *int   `json:"rating"`   // 1..4; absent → 3 (smakuje)
+	TriedAt string `json:"tried_at"` // RFC3339; empty/absent → now
 }
 
 // Try records one offering of the food: increments the counter,
@@ -255,6 +302,27 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Optional "when was it eaten" — the parent often records a meal hours or
+	// days later. Empty means "just now". Guard against typos in the past and
+	// against entries in the future.
+	var triedAt *time.Time
+	if strings.TrimSpace(req.TriedAt) != "" {
+		ts, err := time.Parse(time.RFC3339, strings.TrimSpace(req.TriedAt))
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "tried_at must be an RFC3339 timestamp")
+			return
+		}
+		if ts.After(time.Now().Add(triedAtFutureSkew)) {
+			writeErr(w, http.StatusBadRequest, "tried_at cannot be in the future")
+			return
+		}
+		if ts.Before(minTriedAt) {
+			writeErr(w, http.StatusBadRequest, "tried_at is too far in the past")
+			return
+		}
+		triedAt = &ts
+	}
+
 	tx, err := h.DB.Begin()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -264,7 +332,7 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 
 	var prevTries, prevLastRating int
 	if err := tx.QueryRow(
-		`SELECT f.tries, COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0)
+		`SELECT f.tries, COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), 0)
 		 FROM rz_foods f WHERE f.id = $1 AND f.user_id = $2`,
 		id, uid,
 	).Scan(&prevTries, &prevLastRating); err == sql.ErrNoRows {
@@ -276,17 +344,24 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := tx.Exec(
-		`INSERT INTO rz_food_log (food_id, user_id, note, rating) VALUES ($1, $2, $3, $4)`,
-		id, uid, note, rating,
+		`INSERT INTO rz_food_log (food_id, user_id, note, rating, tried_at)
+		 VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()))`,
+		id, uid, note, rating, triedAt,
 	); err != nil {
 		log.Printf("[FOODS] try insert log: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
+	// last_tried_at tracks the newest meal, so a backdated entry never moves
+	// it backwards (GREATEST ignores NULLs → also covers the first-ever try).
 	if _, err := tx.Exec(
-		`UPDATE rz_foods SET tries = tries + 1, last_tried_at = NOW(), updated_at = NOW() WHERE id = $1 AND user_id = $2`,
-		id, uid,
+		`UPDATE rz_foods
+		 SET tries = tries + 1,
+		     last_tried_at = GREATEST(last_tried_at, COALESCE($3::timestamptz, NOW())),
+		     updated_at = NOW()
+		 WHERE id = $1 AND user_id = $2`,
+		id, uid, triedAt,
 	); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
@@ -349,6 +424,8 @@ func (h *FoodHandler) Untry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if tries > 0 {
+		// Undo works on the last *recorded* entry (highest id) — that is the one
+		// the parent just tapped +1 for, even if its tried_at is backdated.
 		if _, err := tx.Exec(
 			`DELETE FROM rz_food_log WHERE id = (SELECT id FROM rz_food_log WHERE food_id = $1 ORDER BY id DESC LIMIT 1)`,
 			id,
@@ -359,7 +436,7 @@ func (h *FoodHandler) Untry(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.Exec(
 			`UPDATE rz_foods
 			 SET tries = tries - 1,
-			     last_tried_at = (SELECT tried_at FROM rz_food_log WHERE food_id = $1 ORDER BY id DESC LIMIT 1),
+			     last_tried_at = (SELECT MAX(tried_at) FROM rz_food_log WHERE food_id = $1),
 			     updated_at = NOW()
 			 WHERE id = $1 AND user_id = $2`,
 			id, uid,
@@ -383,10 +460,11 @@ func (h *FoodHandler) Untry(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateFoodRequest struct {
-	Name     *string `json:"name"`
-	Category *string `json:"category"`
-	Notes    *string `json:"notes"`
-	Target   *int    `json:"target"`
+	Name       *string   `json:"name"`
+	Category   *string   `json:"category"`   // legacy single category
+	Categories *[]string `json:"categories"` // full set; first one is primary
+	Notes      *string   `json:"notes"`
+	Target     *int      `json:"target"`
 }
 
 // Update edits editable fields of a food.
@@ -404,6 +482,15 @@ func (h *FoodHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Category handling: "categories" is the full set (primary first), the
+	// legacy "category" is a one-element set.
+	var catNames []string
+	if req.Categories != nil {
+		catNames = normalizeCategoryList(*req.Categories)
+	} else if req.Category != nil {
+		catNames = normalizeCategoryList([]string{*req.Category})
+	}
+
 	sets := []string{}
 	args := []interface{}{}
 	arg := func(v interface{}) string {
@@ -418,11 +505,6 @@ func (h *FoodHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sets = append(sets, "name = "+arg(name))
-		sets = append(sets, "updated_at = NOW()")
-	}
-	if req.Category != nil {
-		sets = append(sets, "category = "+arg(normalizeCategory(*req.Category)))
-		sets = append(sets, "updated_at = NOW()")
 	}
 	if req.Notes != nil {
 		notes := strings.TrimSpace(*req.Notes)
@@ -431,7 +513,6 @@ func (h *FoodHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sets = append(sets, "notes = "+arg(notes))
-		sets = append(sets, "updated_at = NOW()")
 	}
 	if req.Target != nil {
 		target := *req.Target
@@ -442,22 +523,62 @@ func (h *FoodHandler) Update(w http.ResponseWriter, r *http.Request) {
 			target = 100
 		}
 		sets = append(sets, "target = "+arg(target))
-		sets = append(sets, "updated_at = NOW()")
 	}
 
-	if len(sets) == 0 {
+	if len(sets) == 0 && catNames == nil {
 		writeErr(w, http.StatusBadRequest, "nothing to update")
 		return
 	}
+	// The category column and its stamp are written by setFoodCategories, so
+	// only stamp here when this request does not touch categories: PostgreSQL
+	// rejects a repeated assignment to the same column.
+	if catNames == nil && len(sets) > 0 {
+		sets = append(sets, "updated_at = NOW()")
+	}
 
-	args = append(args, id, uid)
-	q := "UPDATE rz_foods SET " + strings.Join(sets, ", ") + " WHERE id = $" + strconv.Itoa(len(args)-1) + " AND user_id = $" + strconv.Itoa(len(args))
-	if _, err := h.DB.Exec(q, args...); err != nil {
-		if isPGUniqueViolation(err) {
-			writeErr(w, http.StatusConflict, "already on the list")
+	tx, err := h.DB.Begin()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer tx.Rollback()
+
+	if len(sets) > 0 {
+		args = append(args, id, uid)
+		res, err := tx.Exec(
+			"UPDATE rz_foods SET "+strings.Join(sets, ", ")+
+				" WHERE id = $"+strconv.Itoa(len(args)-1)+" AND user_id = $"+strconv.Itoa(len(args)),
+			args...,
+		)
+		if err != nil {
+			if isPGUniqueViolation(err) {
+				writeErr(w, http.StatusConflict, "already on the list")
+				return
+			}
+			log.Printf("[FOODS] update: %v", err)
+			writeErr(w, http.StatusInternalServerError, "internal error")
 			return
 		}
-		log.Printf("[FOODS] update: %v", err)
+		if n, err := res.RowsAffected(); err == nil && n == 0 {
+			writeErr(w, http.StatusNotFound, "food not found")
+			return
+		}
+	}
+
+	if catNames != nil {
+		ok, err := setFoodCategories(tx, uid, id, catNames)
+		if err != nil {
+			log.Printf("[FOODS] update categories: %v", err)
+			writeErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if !ok {
+			writeErr(w, http.StatusNotFound, "food not found")
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -507,7 +628,7 @@ func (h *FoodHandler) Log(w http.ResponseWriter, r *http.Request) {
 		 FROM rz_food_log l
 		 JOIN rz_foods f ON f.id = l.food_id
 		 WHERE l.food_id = $1 AND f.user_id = $2
-		 ORDER BY l.id DESC
+		 ORDER BY l.tried_at DESC, l.id DESC
 		 LIMIT 100`,
 		id, contextUserID(r),
 	)
@@ -578,7 +699,7 @@ func (h *FoodHandler) DeleteLog(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.Exec(
 		`UPDATE rz_foods
 		 SET tries = GREATEST(tries - 1, 0),
-		     last_tried_at = (SELECT tried_at FROM rz_food_log WHERE food_id = $1 ORDER BY id DESC LIMIT 1),
+		     last_tried_at = (SELECT MAX(tried_at) FROM rz_food_log WHERE food_id = $1),
 		     updated_at = NOW()
 		 WHERE id = $1 AND user_id = $2`,
 		foodID, uid,
@@ -608,6 +729,14 @@ func intSlice(a pq.Int64Array) []int {
 	for i, v := range a {
 		out[i] = int(v)
 	}
+	return out
+}
+
+// categorySlice converts a pq text array into []string (never nil, so the
+// JSON stays a list for the frontend).
+func categorySlice(a pq.StringArray) []string {
+	out := make([]string, len(a))
+	copy(out, a)
 	return out
 }
 
@@ -675,7 +804,7 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		`SELECT COUNT(*)::int FROM rz_foods f
 		 WHERE f.user_id = $1
 		   AND (f.tries >= f.target
-		        OR COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.id DESC LIMIT 1), 0) >= 3)`,
+		        OR COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), 0) >= 3)`,
 		uid,
 	).Scan(&foodsOK); err != nil {
 		foodsOK = 0

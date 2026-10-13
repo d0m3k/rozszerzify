@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { loadAuth, clearAuth, saveAuth, AuthState } from './stores/auth';
-import { api, Food, LogEntry, RankingEntry, Stats, normalize } from './api';
+import { api, Category, Food, LogEntry, RankingEntry, Stats, normalize } from './api';
 import { LoginPage } from './pages/Login';
 import { RegisterPage } from './pages/Register';
 import { FoodsPage } from './pages/Foods';
@@ -38,6 +38,7 @@ export function App() {
   const [page, setPage] = useState<Page>(init.page);
   const [selId, setSelId] = useState(init.id);
   const [foods, setFoods] = useState<Food[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
   const [rankLoaded, setRankLoaded] = useState(false);
@@ -81,6 +82,7 @@ export function App() {
   useEffect(() => {
     if (!auth) return;
     api.listFoods().then(setFoods).catch(() => {});
+    api.listCategories().then(setCategories).catch(() => {});
     api.stats().then(setStats).catch(() => {});
   }, [auth, tick]);
 
@@ -101,9 +103,9 @@ export function App() {
     setAuth(null);
   }
 
-  async function handleTry(foodId: number, rating: number, note?: string) {
+  async function handleTry(foodId: number, rating: number, note?: string, triedAt?: string) {
     try {
-      await api.tryFood(foodId, rating, note);
+      await api.tryFood(foodId, rating, note, triedAt);
     } catch {
       /* ignore */
     } finally {
@@ -112,10 +114,11 @@ export function App() {
     }
   }
 
-  // Restore a removed try (undo) by re-adding it with the same rating + note.
+  // Restore a removed try (undo) by re-adding it with the same rating, note
+  // and original timestamp.
   async function restoreTry(foodId: number, entry: LogEntry) {
     try {
-      await api.tryFood(foodId, entry.rating, entry.note);
+      await api.tryFood(foodId, entry.rating, entry.note, entry.tried_at);
       showToast('✓ Próba przywrócona');
       refresh();
     } catch {
@@ -137,10 +140,29 @@ export function App() {
     });
   }
 
-  async function handleSave(foodId: number, patch: { notes?: string; target?: number }) {
+  async function handleSave(foodId: number, patch: { categories?: string[]; notes?: string; target?: number }) {
     await api.updateFood(foodId, patch);
     refresh();
     showToast('✓ Zapisano');
+  }
+
+  // Creating a category inline (food forms) returns it so the form can select it.
+  async function handleCreateCategory(name: string): Promise<Category> {
+    const created = await api.createCategory(name);
+    setCategories((prev) => [...prev, created].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'pl')));
+    return created;
+  }
+
+  async function handleRenameCategory(id: number, name: string) {
+    await api.updateCategory(id, { name });
+    refresh();
+    showToast('✓ Kategoria zmieniona');
+  }
+
+  async function handleDeleteCategory(id: number) {
+    await api.deleteCategory(id);
+    refresh();
+    showToast('Kategoria usunięta');
   }
 
   async function handleDelete(foodId: number) {
@@ -150,9 +172,9 @@ export function App() {
     showToast('Usunięto z listy');
   }
 
-  async function handleQuickAdd(name: string, category: string) {
+  async function handleQuickAdd(name: string, cats: string[]) {
     try {
-      const created = await api.createFood({ name, category });
+      const created = await api.createFood({ name, categories: cats });
       setSheetFor(created);
       refresh();
     } catch {
@@ -205,8 +227,11 @@ export function App() {
           <FoodsPage
             foods={foods}
             stats={stats}
+            categories={categories}
             onOpenDetail={(id) => go('detail', id)}
             onPlus={(f) => setSheetFor(f)}
+            onRenameCategory={handleRenameCategory}
+            onDeleteCategory={handleDeleteCategory}
           />
         )}
         {page === 'ranking' && (
@@ -219,6 +244,7 @@ export function App() {
         {page === 'search' && (
           <SearchPage
             foods={foods}
+            categories={categories}
             onBack={() => go('foods')}
             onPick={(f) => setSheetFor(f)}
             onQuickAdd={handleQuickAdd}
@@ -227,17 +253,21 @@ export function App() {
         )}
         {page === 'add' && (
           <AddFoodPage
+            categories={categories}
             onBack={() => go('foods')}
             onAdded={() => { go('foods'); refresh(); showToast('➕ Dodano'); }}
+            onCreateCategory={handleCreateCategory}
           />
         )}
         {page === 'detail' && selFood && (
           <FoodDetailPage
             food={selFood}
+            categories={categories}
             onBack={() => go('foods')}
             onPlus={() => setSheetFor(selFood)}
             onRemoveLog={(entry) => handleRemoveLog(selFood.id, entry)}
             onSave={(patch) => handleSave(selFood.id, patch)}
+            onCreateCategory={handleCreateCategory}
             onDelete={() => handleDelete(selFood.id)}
           />
         )}
@@ -260,7 +290,7 @@ export function App() {
       {sheetFor && (
         <RatingSheet
           foodName={sheetFor.name}
-          onSelect={(r, note) => handleTry(sheetFor.id, r, note)}
+          onSelect={(r, note, triedAt) => handleTry(sheetFor.id, r, note, triedAt)}
           onClose={() => setSheetFor(null)}
         />
       )}

@@ -1,24 +1,26 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import {
-  CATEGORY_ORDER,
+  Category,
   Food,
   categoryEmoji,
   categoryLabel,
+  foodCategories,
   foodEmoji,
   normalize,
 } from '../api';
 
 interface Props {
   foods: Food[];
+  categories: Category[];
   onBack: () => void;
   onPick: (food: Food) => void;
-  onQuickAdd: (name: string, category: string) => void;
+  onQuickAdd: (name: string, categories: string[]) => void;
   onFullForm: () => void;
 }
 
-export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Props) {
+export function SearchPage({ foods, categories, onBack, onPick, onQuickAdd, onFullForm }: Props) {
   const [q, setQ] = useState('');
-  const [cat, setCat] = useState('inne');
+  const [cats, setCats] = useState<string[]>(['inne']);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus + pop the keyboard right after the page mounts.
@@ -31,7 +33,7 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
   const nq = normalize(query);
   const matches = query
     ? foods
-        .filter((f) => normalize(f.name).includes(nq) || normalize(f.category).includes(nq))
+        .filter((f) => normalize(f.name).includes(nq) || foodCategories(f).some((c) => normalize(c).includes(nq)))
         .sort((a, b) => {
           const sa = normalize(a.name).startsWith(nq) ? 0 : 1;
           const sb = normalize(b.name).startsWith(nq) ? 0 : 1;
@@ -41,6 +43,15 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
 
   const exact = query !== '' && foods.some((f) => normalize(f.name) === nq);
   const showAdd = query !== '' && !exact;
+
+  function toggleCat(name: string) {
+    if (cats.includes(name)) {
+      if (cats.length === 1) return; // keep at least one category
+      setCats(cats.filter((c) => c !== name));
+      return;
+    }
+    setCats([...cats, name]);
+  }
 
   return (
     <div class="page search-page">
@@ -63,18 +74,18 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
 
       {showAdd && (
         <div class="quick-add">
-          <button class="quick-add-btn" onClick={() => onQuickAdd(q.trim(), cat)}>
+          <button class="quick-add-btn" onClick={() => onQuickAdd(q.trim(), cats)}>
             ➕ Dodaj „{q.trim()}”
           </button>
           <div class="chip-grid">
-            {CATEGORY_ORDER.map((c) => (
+            {categories.map((c) => (
               <button
-                key={c}
-                class={cat === c ? 'chip chip-active chip-sm' : 'chip chip-sm'}
-                onClick={() => setCat(c)}
-                title={categoryLabel(c)}
+                key={c.id}
+                class={cats.includes(c.name) ? 'chip chip-active chip-sm' : 'chip chip-sm'}
+                onClick={() => toggleCat(c.name)}
+                title={categoryLabel(c.name)}
               >
-                {categoryEmoji(c)}
+                {categoryEmoji(c.name, categories)}
               </button>
             ))}
           </div>
@@ -106,7 +117,7 @@ export function SearchPage({ foods, onBack, onPick, onQuickAdd, onFullForm }: Pr
             <div class="search-info">
               <span class="search-name">{f.name}</span>
               <span class="search-cat">
-                {categoryLabel(f.category)}
+                {foodCategories(f).map(categoryLabel).join(' · ')}
                 {f.tries > 0 ? ` · ${f.tries} ${f.tries === 1 ? 'próba' : f.tries < 5 ? 'próby' : 'prób'}` : ''}
               </span>
             </div>

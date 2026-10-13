@@ -64,6 +64,10 @@ func main() {
 		}
 	}
 
+	// Categories are per account and editable; this also migrates foods that
+	// predate them (each food's primary category becomes a real category).
+	db.EnsureCategoriesLogged(conn)
+
 	notifier := notify.New(cfg.PushoverUserKey, cfg.PushoverAppToken)
 	if notifier.Enabled() {
 		log.Println("notify: Pushover ENABLED (first-try + target-reached alerts)")
@@ -73,6 +77,7 @@ func main() {
 
 	authH := &handlers.AuthHandler{DB: conn, Cfg: cfg, Notify: notifier}
 	foodH := &handlers.FoodHandler{DB: conn, Cfg: cfg, Notify: notifier}
+	catH := &handlers.CategoryHandler{DB: conn}
 
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)
@@ -99,6 +104,11 @@ func main() {
 			r.Post("/foods/{id}/untry", foodH.Untry)
 			r.Get("/foods/{id}/log", foodH.Log)
 			r.Delete("/foods/{id}/log/{logId}", foodH.DeleteLog)
+
+			r.Get("/categories", catH.List)
+			r.Post("/categories", catH.Create)
+			r.Put("/categories/{id}", catH.Update)
+			r.Delete("/categories/{id}", catH.Delete)
 
 			r.Get("/ranking", foodH.Ranking)
 			r.Get("/stats", foodH.Stats)
@@ -283,6 +293,7 @@ func createUser(conn *sql.DB, username, password, birthDate, startDate string) i
 		fmt.Printf("new-user: seed foods: %v\n", err)
 		return 1
 	}
+	db.EnsureCategoriesLogged(conn)
 	fmt.Printf("new-user: done — %d starter foods, birth=%q start=%q\n", len(db.StarterFoods), birthDate, startDate)
 	return 0
 }

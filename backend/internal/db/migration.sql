@@ -47,5 +47,32 @@ ALTER TABLE rz_food_log ADD COLUMN IF NOT EXISTS rating INTEGER NOT NULL DEFAULT
 ALTER TABLE rz_users ADD COLUMN IF NOT EXISTS birth_date DATE;
 ALTER TABLE rz_users ADD COLUMN IF NOT EXISTS start_date DATE;
 
+-- Categories are per account and user-editable (a food can belong to several,
+-- e.g. jajko is both an "alergeny" and a "mięso i ryby"-ish protein). The
+-- built-in list is seeded per user by EnsureCategories on boot.
+CREATE TABLE IF NOT EXISTS rz_categories (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES rz_users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    emoji      TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 500,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, name)
+);
+
+-- Membership: rz_foods.category stays the *primary* category (the first one),
+-- this table holds every category the food belongs to, primary included.
+CREATE TABLE IF NOT EXISTS rz_food_categories (
+    food_id     INTEGER NOT NULL REFERENCES rz_foods(id) ON DELETE CASCADE,
+    category_id INTEGER NOT NULL REFERENCES rz_categories(id) ON DELETE CASCADE,
+    PRIMARY KEY (food_id, category_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rz_categories_user ON rz_categories (user_id, sort_order, name);
+CREATE INDEX IF NOT EXISTS idx_rz_food_categories_cat ON rz_food_categories (category_id);
+
 CREATE INDEX IF NOT EXISTS idx_rz_food_log_food ON rz_food_log (food_id, id DESC);
+-- "What did he eat last" is ordered by when the meal happened, not when it was
+-- typed in (tries can be backdated), hence this second index.
+CREATE INDEX IF NOT EXISTS idx_rz_food_log_food_tried ON rz_food_log (food_id, tried_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_rz_food_log_user_day ON rz_food_log (user_id, tried_at);
