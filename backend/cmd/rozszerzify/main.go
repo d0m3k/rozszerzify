@@ -70,13 +70,13 @@ func main() {
 
 	notifier := notify.New(cfg.PushoverUserKey, cfg.PushoverAppToken)
 	if notifier.Enabled() {
-		log.Println("notify: Pushover ENABLED (first-try + target-reached alerts)")
+		log.Println("notify: Pushover ENABLED (new accounts + diet-start reminders)")
 	} else {
 		log.Println("notify: Pushover not configured — notifications disabled")
 	}
 
 	authH := &handlers.AuthHandler{DB: conn, Cfg: cfg, Notify: notifier}
-	foodH := &handlers.FoodHandler{DB: conn, Cfg: cfg, Notify: notifier}
+	foodH := &handlers.FoodHandler{DB: conn, Cfg: cfg}
 	catH := &handlers.CategoryHandler{DB: conn}
 
 	r := chi.NewRouter()

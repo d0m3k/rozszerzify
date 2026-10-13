@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"rozszerzify/internal/config"
-	"rozszerzify/internal/notify"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/lib/pq"
@@ -31,9 +29,8 @@ const triedAtFutureSkew = 5 * time.Minute
 var minTriedAt = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
 type FoodHandler struct {
-	DB     *sql.DB
-	Cfg    *config.Config
-	Notify *notify.Notifier
+	DB  *sql.DB
+	Cfg *config.Config
 }
 
 type Food struct {
@@ -334,12 +331,11 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var prevTries, prevLastRating int
+	var exists int
 	if err := tx.QueryRow(
-		`SELECT f.tries, COALESCE((SELECT l.rating FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), 0)
-		 FROM rz_foods f WHERE f.id = $1 AND f.user_id = $2`,
+		`SELECT 1 FROM rz_foods WHERE id = $1 AND user_id = $2`,
 		id, uid,
-	).Scan(&prevTries, &prevLastRating); err == sql.ErrNoRows {
+	).Scan(&exists); err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "food not found")
 		return
 	} else if err != nil {
@@ -382,23 +378,9 @@ func (h *FoodHandler) Try(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pushover notifications for the milestone moments: first try,
-	// 15-try target reached, and — most importantly — a green last try that
-	// marks the food as OK without needing all 15 attempts.
-	if h.Notify != nil && h.Notify.Enabled() {
-		reaction := ratingEmoji(rating)
-		wasOK := prevTries >= f.Target || prevLastRating >= 3
-		nowOK := f.Tries >= f.Target || f.LastRating >= 3
-		switch {
-		case prevTries == 0:
-			h.Notify.Send("🍽️ Nowe jedzenie", fmt.Sprintf("%s — pierwszy raz! (%s)", f.Name, reaction))
-		case f.Tries >= f.Target && prevTries < f.Target:
-			h.Notify.Send("🎉 Przetestowane!", fmt.Sprintf("%s ma %d prób (%s) — wiesz już, czy smakuje.", f.Name, f.Tries, reaction))
-		case !wasOK && nowOK:
-			h.Notify.Send("💚 Nowe OK!", fmt.Sprintf("%s — zjadł przy ostatniej próbie (%s), nie trzeba już czekać na 15 prób!", f.Name, reaction))
-		}
-	}
-
+	// Deliberately no Pushover alert here: parents record several tries a day
+	// and the app shows the same milestones (first try, target, green last try)
+	// inline. Only account and diet-start events notify.
 	writeJSON(w, http.StatusOK, f)
 }
 
@@ -1019,21 +1001,6 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		"tries_total":       triesTotal,
 		"foods_tried_today": triedToday,
 	})
-}
-
-// ratingEmoji maps a 1–4 rating to a short emoji for notifications and labels.
-func ratingEmoji(r int) string {
-	switch r {
-	case 1:
-		return "😖"
-	case 2:
-		return "😐"
-	case 3:
-		return "🙂"
-	case 4:
-		return "🤩"
-	}
-	return "🙂"
 }
 
 // ageMonthsDays returns the calendar age as (months, days) between birth and now.

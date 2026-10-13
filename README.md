@@ -35,6 +35,10 @@ co mu najbardziej podchodzi.
   z palety lub wpisując dowolne emoji
 - **✏️ Edycja zapisanej próby** — ocena, notatka i data („wczoraj na kolację”)
   do poprawienia w historii prób; licznik i „ostatnia próba” przeliczają się same
+- **🔔 Powiadomienia tylko o koncie i starcie diety** — Pushover odezwie się przy
+  rejestracji nowego malucha i w checkpointach odliczania do startu rozszerzania;
+  zapisywanie prób (+1, edycja) nie wysyła już nic — te same kamienie milowe
+  (pierwsza próba, cel, „✓ OK”) widać od razu w aplikacji
 - **PWA** — instalacja na ekran główny, offline shell
 - **Konta**: wielo-kontowe — pierwszy `krzysio` (hasło z `SEED_PASSWORD`), kolejne przez **samo-rejestrację w aplikacji** (odpowiednik flow z rybaspotting: Cloudflare Turnstile + data urodzenia malucha, powiadomienie Pushover przy rejestracji) albo przez `-new-user` na serwerze — każdy maluch ma własną listę produktów, próby i daty
 
