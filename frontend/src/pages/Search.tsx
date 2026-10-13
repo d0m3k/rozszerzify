@@ -5,7 +5,7 @@ import {
   categoryEmoji,
   categoryLabel,
   foodCategories,
-  foodEmoji,
+  foodIcon,
   normalize,
 } from '../api';
 
@@ -113,7 +113,7 @@ export function SearchPage({ foods, categories, onBack, onPick, onQuickAdd, onFu
       <div class="search-results">
         {matches.map((f) => (
           <div class="search-row" key={f.id} onClick={() => onPick(f)}>
-            <span class="search-emoji">{foodEmoji(f.name, f.category)}</span>
+            <span class="search-emoji">{foodIcon(f, categories)}</span>
             <div class="search-info">
               <span class="search-name">{f.name}</span>
               <span class="search-cat">

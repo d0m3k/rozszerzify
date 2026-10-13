@@ -36,7 +36,7 @@ export function RankingPage({ ranking, loading, onOpenDetail }: Props) {
           <span class="rank-medal">{MEDALS[idx] ?? `${idx + 1}.`}</span>
           <div class="rank-info">
             <div class="rank-name">
-              {foodEmoji(r.name, r.category)} {r.name}
+              {r.emoji || foodEmoji(r.name, r.category)} {r.name}
             </div>
             <div class="rank-track">
               <div

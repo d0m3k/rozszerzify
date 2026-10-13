@@ -3,6 +3,7 @@
 export interface Food {
   id: number;
   name: string;
+  emoji: string;
   category: string;
   categories: string[];
   tries: number;
@@ -44,6 +45,7 @@ export interface LogEntry {
 export interface RankingEntry {
   food_id: number;
   name: string;
+  emoji: string;
   category: string;
   tries: number;
   rating_count: number;
@@ -114,9 +116,9 @@ export const api = {
 
   listFoods: () => request<Food[]>('/api/foods'),
   getFood: (id: number) => request<Food>(`/api/foods/${id}`),
-  createFood: (data: { name: string; categories: string[]; notes?: string; target?: number }) =>
+  createFood: (data: { name: string; categories: string[]; emoji?: string; notes?: string; target?: number }) =>
     request<Food>('/api/foods', { method: 'POST', body: JSON.stringify(data) }),
-  updateFood: (id: number, data: { name?: string; categories?: string[]; notes?: string; target?: number }) =>
+  updateFood: (id: number, data: { name?: string; emoji?: string; categories?: string[]; notes?: string; target?: number }) =>
     request<Food>(`/api/foods/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteFood: (id: number) => request<{ ok: boolean }>(`/api/foods/${id}`, { method: 'DELETE' }),
 
@@ -135,6 +137,8 @@ export const api = {
   untryFood: (id: number) => request<Food>(`/api/foods/${id}/untry`, { method: 'POST' }),
 
   foodLog: (id: number) => request<LogEntry[]>(`/api/foods/${id}/log`),
+  updateLog: (foodId: number, logId: number, data: { rating?: number; note?: string; tried_at?: string }) =>
+    request<Food>(`/api/foods/${foodId}/log/${logId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLog: (foodId: number, logId: number) =>
     request<Food>(`/api/foods/${foodId}/log/${logId}`, { method: 'DELETE' }),
   ranking: () => request<RankingEntry[]>('/api/ranking'),
@@ -203,6 +207,27 @@ const FOOD_EMOJI: Record<string, string> = {
 
 export function foodEmoji(name: string, category: string, cats?: Category[]): string {
   return FOOD_EMOJI[name.toLowerCase()] ?? categoryEmoji(category, cats);
+}
+
+/** Icon of a food: its own emoji, else the name table, else its category. */
+export function foodIcon(f: Food, cats?: Category[]): string {
+  return f.emoji || foodEmoji(f.name, f.category, cats);
+}
+
+/** Emoji offered as one-tap picks when setting a food/category icon. */
+export const EMOJI_PALETTE = [
+  '🍎', '🍐', '🍌', '🍑', '🍓', '🫐', '🥭', '🍇',
+  '🥕', '🥔', '🍠', '🎃', '🥦', '🥒', '🟢', '🌽', '🥑',
+  '🌾', '🥣', '🍚', '🍞', '🫘', '🥜', '🌰', '🍯',
+  '🍗', '🥩', '🐟', '🦐', '🥚', '🧀', '🥛', '🍶',
+  '🫒', '💧', '🌱', '🌿', '🍲', '🥄', '✨', '🍽️',
+];
+
+// <input type="datetime-local"> talks local wall-clock time ("2026-10-13T14:30"),
+// which is what the parent sees on their own phone.
+export function localInputValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // Order for the group list: the account's own category order when known,

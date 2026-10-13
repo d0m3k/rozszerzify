@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS rz_food_categories (
 CREATE INDEX IF NOT EXISTS idx_rz_categories_user ON rz_categories (user_id, sort_order, name);
 CREATE INDEX IF NOT EXISTS idx_rz_food_categories_cat ON rz_food_categories (category_id);
 
+-- Per-food icon; empty → the frontend falls back to its name table, then to
+-- the primary category's emoji.
+ALTER TABLE rz_foods ADD COLUMN IF NOT EXISTS emoji TEXT NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS idx_rz_food_log_food ON rz_food_log (food_id, id DESC);
 -- "What did he eat last" is ordered by when the meal happened, not when it was
 -- typed in (tries can be backdated), hence this second index.

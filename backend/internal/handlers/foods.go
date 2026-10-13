@@ -39,6 +39,7 @@ type FoodHandler struct {
 type Food struct {
 	ID          int        `json:"id"`
 	Name        string     `json:"name"`
+	Emoji       string     `json:"emoji"`
 	Category    string     `json:"category"`
 	Categories  []string   `json:"categories"`
 	Tries       int        `json:"tries"`
@@ -73,6 +74,7 @@ type LogEntry struct {
 type rankingEntry struct {
 	FoodID      int     `json:"food_id"`
 	Name        string  `json:"name"`
+	Emoji       string  `json:"emoji"`
 	Category    string  `json:"category"`
 	Tries       int     `json:"tries"`
 	RatingCount int     `json:"rating_count"`
@@ -86,7 +88,7 @@ func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 	var recent pq.Int64Array
 	var categories pq.StringArray
 	err := conn.QueryRow(
-		`SELECT f.id, f.name, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
+		`SELECT f.id, f.name, f.emoji, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
@@ -102,7 +104,7 @@ func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 		 FROM rz_foods f
 		 WHERE f.id = $1 AND f.user_id = $2`,
 		id, userID,
-	).Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
+	).Scan(&f.ID, &f.Name, &f.Emoji, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
 		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories)
 	if err != nil {
 		log.Printf("[FOODS] fetch id=%d: %v", id, err)
@@ -118,7 +120,7 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 	uid := contextUserID(r)
 
 	rows, err := h.DB.Query(
-		`SELECT f.id, f.name, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
+		`SELECT f.id, f.name, f.emoji, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT ROUND(AVG(rating)::numeric, 2)::float8 FROM rz_food_log l WHERE l.food_id = f.id), 0),
 		        COALESCE((SELECT SUM(rating)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
@@ -148,7 +150,7 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		var f Food
 		var recent pq.Int64Array
 		var categories pq.StringArray
-		if err := rows.Scan(&f.ID, &f.Name, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
+		if err := rows.Scan(&f.ID, &f.Name, &f.Emoji, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
 			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories); err != nil {
 			log.Printf("[FOODS] scan: %v", err)
 			continue
@@ -181,6 +183,7 @@ func (h *FoodHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 type createFoodRequest struct {
 	Name       string   `json:"name"`
+	Emoji      string   `json:"emoji"`
 	Category   string   `json:"category"`   // legacy single category
 	Categories []string `json:"categories"` // full set; first one is primary
 	Notes      string   `json:"notes"`
@@ -208,6 +211,7 @@ func (h *FoodHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if len(req.Categories) > 0 {
 		categories = normalizeCategoryList(req.Categories)
 	}
+	emoji := normalizeEmoji(&req.Emoji)
 	notes := strings.TrimSpace(req.Notes)
 	if len([]rune(notes)) > 500 {
 		writeErr(w, http.StatusBadRequest, "notes too long")
@@ -231,9 +235,9 @@ func (h *FoodHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var id int
 	err = tx.QueryRow(
-		`INSERT INTO rz_foods (user_id, name, category, notes, target) VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO rz_foods (user_id, name, emoji, category, notes, target) VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (user_id, name) DO NOTHING RETURNING id`,
-		uid, name, categories[0], notes, target,
+		uid, name, emoji, categories[0], notes, target,
 	).Scan(&id)
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusConflict, "already on the list")
@@ -461,6 +465,7 @@ func (h *FoodHandler) Untry(w http.ResponseWriter, r *http.Request) {
 
 type updateFoodRequest struct {
 	Name       *string   `json:"name"`
+	Emoji      *string   `json:"emoji"`
 	Category   *string   `json:"category"`   // legacy single category
 	Categories *[]string `json:"categories"` // full set; first one is primary
 	Notes      *string   `json:"notes"`
@@ -505,6 +510,9 @@ func (h *FoodHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sets = append(sets, "name = "+arg(name))
+	}
+	if req.Emoji != nil {
+		sets = append(sets, "emoji = "+arg(normalizeEmoji(req.Emoji)))
 	}
 	if req.Notes != nil {
 		notes := strings.TrimSpace(*req.Notes)
@@ -649,6 +657,145 @@ func (h *FoodHandler) Log(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, entries)
 }
 
+type updateLogRequest struct {
+	Rating  *int    `json:"rating"`
+	Note    *string `json:"note"`
+	TriedAt string  `json:"tried_at"` // RFC3339; empty → keep the current value
+}
+
+// UpdateLog edits one recorded try (rating, note, when it was eaten) in place,
+// so a mistyped entry is fixed rather than deleted and re-added. No trigger
+// notifications: the meal already happened.
+func (h *FoodHandler) UpdateLog(w http.ResponseWriter, r *http.Request) {
+	foodID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || foodID < 1 {
+		writeErr(w, http.StatusBadRequest, "invalid food id")
+		return
+	}
+	logID, err := strconv.Atoi(chi.URLParam(r, "logId"))
+	if err != nil || logID < 1 {
+		writeErr(w, http.StatusBadRequest, "invalid log id")
+		return
+	}
+	uid := contextUserID(r)
+
+	var req updateLogRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var triedAt *time.Time
+	if strings.TrimSpace(req.TriedAt) != "" {
+		ts, err := time.Parse(time.RFC3339, strings.TrimSpace(req.TriedAt))
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "tried_at must be an RFC3339 timestamp")
+			return
+		}
+		if ts.After(time.Now().Add(triedAtFutureSkew)) {
+			writeErr(w, http.StatusBadRequest, "tried_at cannot be in the future")
+			return
+		}
+		if ts.Before(minTriedAt) {
+			writeErr(w, http.StatusBadRequest, "tried_at is too far in the past")
+			return
+		}
+		triedAt = &ts
+	}
+
+	sets := []string{}
+	args := []interface{}{}
+	arg := func(v interface{}) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args))
+	}
+	if req.Rating != nil {
+		if *req.Rating < RatingMin || *req.Rating > RatingMax {
+			writeErr(w, http.StatusBadRequest, "rating must be between 1 and 4")
+			return
+		}
+		sets = append(sets, "rating = "+arg(*req.Rating))
+	}
+	if req.Note != nil {
+		note := strings.TrimSpace(*req.Note)
+		if len([]rune(note)) > 300 {
+			writeErr(w, http.StatusBadRequest, "note too long")
+			return
+		}
+		sets = append(sets, "note = "+arg(note))
+	}
+	if triedAt != nil {
+		sets = append(sets, "tried_at = "+arg(*triedAt))
+	}
+	if len(sets) == 0 {
+		writeErr(w, http.StatusBadRequest, "nothing to update")
+		return
+	}
+
+	tx, err := h.DB.Begin()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer tx.Rollback()
+
+	// The entry must belong to the given food AND the food to the user.
+	var foodIDOfEntry int
+	err = tx.QueryRow(
+		`SELECT l.food_id FROM rz_food_log l
+		 JOIN rz_foods f ON f.id = l.food_id
+		 WHERE l.id = $1 AND f.user_id = $2`,
+		logID, uid,
+	).Scan(&foodIDOfEntry)
+	if err == sql.ErrNoRows {
+		writeErr(w, http.StatusNotFound, "entry not found")
+		return
+	} else if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if foodIDOfEntry != foodID {
+		writeErr(w, http.StatusBadRequest, "entry does not belong to this food")
+		return
+	}
+
+	args = append(args, logID)
+	if _, err := tx.Exec(
+		"UPDATE rz_food_log SET "+strings.Join(sets, ", ")+" WHERE id = $"+strconv.Itoa(len(args)),
+		args...,
+	); err != nil {
+		log.Printf("[FOODS] update log: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// A corrected date can become the newest (or no longer the newest) meal.
+	if triedAt != nil {
+		if _, err := tx.Exec(
+			`UPDATE rz_foods
+			 SET last_tried_at = (SELECT MAX(tried_at) FROM rz_food_log WHERE food_id = $1),
+			     updated_at = NOW()
+			 WHERE id = $1 AND user_id = $2`,
+			foodID, uid,
+		); err != nil {
+			writeErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	f, err := h.fetchFood(h.DB, foodID, uid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
 // DeleteLog removes one specific try entry (✕ in the history list) and
 // fixes the food counter + last_tried_at accordingly.
 func (h *FoodHandler) DeleteLog(w http.ResponseWriter, r *http.Request) {
@@ -742,7 +889,7 @@ func categorySlice(a pq.StringArray) []string {
 
 func (h *FoodHandler) Ranking(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(
-		`SELECT f.id, f.name, f.category, f.tries,
+		`SELECT f.id, f.name, f.emoji, f.category, f.tries,
 		        COUNT(l.id)::int AS cnt,
 		        COALESCE(ROUND(AVG(l.rating)::numeric, 2)::float8, 0) AS avg_r,
 		        COALESCE(SUM(l.rating)::int, 0) AS sum_r
@@ -763,7 +910,7 @@ func (h *FoodHandler) Ranking(w http.ResponseWriter, r *http.Request) {
 	ranking := []rankingEntry{}
 	for rows.Next() {
 		var e rankingEntry
-		if err := rows.Scan(&e.FoodID, &e.Name, &e.Category, &e.Tries, &e.RatingCount, &e.RatingAvg, &e.RatingSum); err != nil {
+		if err := rows.Scan(&e.FoodID, &e.Name, &e.Emoji, &e.Category, &e.Tries, &e.RatingCount, &e.RatingAvg, &e.RatingSum); err != nil {
 			continue
 		}
 		ranking = append(ranking, e)

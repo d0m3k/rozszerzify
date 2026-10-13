@@ -103,6 +103,7 @@ func main() {
 			r.Post("/foods/{id}/try", foodH.Try)
 			r.Post("/foods/{id}/untry", foodH.Untry)
 			r.Get("/foods/{id}/log", foodH.Log)
+			r.Put("/foods/{id}/log/{logId}", foodH.UpdateLog)
 			r.Delete("/foods/{id}/log/{logId}", foodH.DeleteLog)
 
 			r.Get("/categories", catH.List)

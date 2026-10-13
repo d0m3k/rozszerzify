@@ -8,11 +8,13 @@ import {
   categoryEmoji,
   categoryLabel,
   foodCategories,
+  foodIcon,
   foodStatus,
   progressPct,
   ratingMeta,
   sortFoods,
 } from '../api';
+import { EmojiField } from '../components/EmojiField';
 
 interface Props {
   foods: Food[];
@@ -20,7 +22,7 @@ interface Props {
   categories: Category[];
   onOpenDetail: (id: number) => void;
   onPlus: (food: Food) => void;
-  onRenameCategory: (id: number, name: string) => Promise<void>;
+  onRenameCategory: (id: number, name: string, emoji: string) => Promise<void>;
   onDeleteCategory: (id: number) => Promise<void>;
 }
 
@@ -36,6 +38,7 @@ function FoodRow({ f, cats, showCat, onOpen, onPlus }: { f: Food; cats: Category
     <div class="food-row" onClick={() => onOpen(f.id)}>
       <div class="food-info">
         <div class="food-line">
+          <span class="food-icon" aria-hidden="true">{foodIcon(f, cats)}</span>
           <span class="food-name">{f.name}</span>
           {f.last_rating > 0 && f.tries > 0 && (
             <span class="food-last-emoji" title="ostatnia próba">{ratingMeta(f.last_rating).emoji}</span>
@@ -95,6 +98,7 @@ export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onRe
   });
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [emojiDraft, setEmojiDraft] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [catError, setCatError] = useState('');
 
@@ -115,6 +119,7 @@ export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onRe
   function openEditor(cat: string) {
     setEditing(cat);
     setDraft(cat);
+    setEmojiDraft(categories.find((c) => c.name === cat)?.emoji ?? '');
     setConfirmDelete(false);
     setCatError('');
   }
@@ -124,7 +129,7 @@ export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onRe
     const name = draft.trim();
     if (!name) return;
     try {
-      await onRenameCategory(id, name);
+      await onRenameCategory(id, name, emojiDraft);
       setEditing(null);
     } catch (err: unknown) {
       setCatError(err instanceof Error ? err.message : 'Nie udało się zmienić nazwy');
@@ -262,16 +267,21 @@ export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onRe
               {isEditing && meta && (
                 <div class="cat-edit">
                   <form class="cat-edit-row" onSubmit={(e) => saveRename(e, meta.id)}>
+                    <span class="cat-edit-emoji" aria-hidden="true">{emojiDraft || '✨'}</span>
                     <input
                       class="input"
                       value={draft}
                       onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
                       aria-label="nazwa kategorii"
                     />
-                    <button class="btn-primary" type="submit" disabled={!draft.trim() || draft.trim() === cat}>
+                    <button class="btn-primary" type="submit" disabled={!draft.trim() || (draft.trim() === cat && emojiDraft === meta.emoji)}>
                       Zapisz
                     </button>
                   </form>
+                  <div class="field">
+                    <span class="field-label">Ikonka kategorii</span>
+                    <EmojiField value={emojiDraft} onChange={setEmojiDraft} label="Ikonka kategorii" />
+                  </div>
                   {confirmDelete ? (
                     <div class="cat-edit-row">
                       <span class="cat-edit-warn">Usunąć „{cat}”? Produkty zostaną w innych kategoriach.</span>

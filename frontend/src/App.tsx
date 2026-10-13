@@ -140,7 +140,7 @@ export function App() {
     });
   }
 
-  async function handleSave(foodId: number, patch: { categories?: string[]; notes?: string; target?: number }) {
+  async function handleSave(foodId: number, patch: { emoji?: string; categories?: string[]; notes?: string; target?: number }) {
     await api.updateFood(foodId, patch);
     refresh();
     showToast('✓ Zapisano');
@@ -153,8 +153,8 @@ export function App() {
     return created;
   }
 
-  async function handleRenameCategory(id: number, name: string) {
-    await api.updateCategory(id, { name });
+  async function handleRenameCategory(id: number, name: string, emoji: string) {
+    await api.updateCategory(id, { name, emoji });
     refresh();
     showToast('✓ Kategoria zmieniona');
   }

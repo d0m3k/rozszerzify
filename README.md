@@ -30,6 +30,11 @@ co mu najbardziej podchodzi.
 - **🍳 Produkt w kilku kategoriach** — np. jajko: *alergeny* + *nabiał*; w widoku
   „Kategorie” pokazuje się w każdej z nich, a pierwsza wybrana jest główną
   (od niej idzie emoji i kolejność na liście)
+- **🎨 Ikonki** — każdy produkt ma swoją ikonkę (własna, inaczej dobrana po
+  nazwie, inaczej ikonka kategorii); kategorie też mają ikonki, obie ustawia się
+  z palety lub wpisując dowolne emoji
+- **✏️ Edycja zapisanej próby** — ocena, notatka i data („wczoraj na kolację”)
+  do poprawienia w historii prób; licznik i „ostatnia próba” przeliczają się same
 - **PWA** — instalacja na ekran główny, offline shell
 - **Konta**: wielo-kontowe — pierwszy `krzysio` (hasło z `SEED_PASSWORD`), kolejne przez **samo-rejestrację w aplikacji** (odpowiednik flow z rybaspotting: Cloudflare Turnstile + data urodzenia malucha, powiadomienie Pushover przy rejestracji) albo przez `-new-user` na serwerze — każdy maluch ma własną listę produktów, próby i daty
 
@@ -99,14 +104,15 @@ Backend słucha na `127.0.0.1:8081` (8080 zajmuje rybaspotting).
 | POST | `/api/auth/login` | login + hasło → JWT (bezterminowy) |
 | POST | `/api/auth/register` | rejestracja konta (Turnstile + `birth_date`/`start_date`) |
 | GET | `/api/config` | publiczna konfiguracja (m.in. `turnstile_site_key`) |
-| GET | `/api/foods` | lista produktów (z agregatami ocen i `categories[]`) |
-| POST | `/api/foods` | dodaj produkt (`{name, categories: [...], notes?, target?}`) |
-| GET/PUT/DELETE | `/api/foods/{id}` | szczegóły / edycja / usunięcie |
-| GET | `/api/categories` | kategorie konta (z `food_count`) |
+| GET | `/api/foods` | lista produktów (z agregatami ocen, `emoji` i `categories[]`) |
+| POST | `/api/foods` | dodaj produkt (`{name, emoji?, categories: [...], notes?, target?}`) |
+| GET/PUT/DELETE | `/api/foods/{id}` | szczegóły / edycja (`emoji`, `categories`, `name`, `notes`, `target`) / usunięcie |
+| GET | `/api/categories` | kategorie konta (z `food_count`, `emoji`, `sort_order`) |
 | POST | `/api/categories` | nowa kategoria (`{name, emoji?}`) |
-| PUT/DELETE | `/api/categories/{id}` | zmiana nazwy / usunięcie (produkty wracają do pozostałych kategorii, w skrajnym razie do `inne`) |
+| PUT/DELETE | `/api/categories/{id}` | nazwa / ikonka / kolejność / usunięcie (produkty wracają do pozostałych kategorii, w skrajnym razie do `inne`) |
 | POST | `/api/foods/{id}/try` | `{rating: 1–4, note?, tried_at?}` — zarejestruj próbę (`tried_at` = RFC3339, domyślnie teraz; nie z przyszłości) |
 | POST | `/api/foods/{id}/untry` | cofnij ostatnią próbę (pomyłka) |
 | GET | `/api/foods/{id}/log` | historia prób |
+| PUT | `/api/foods/{id}/log/{logId}` | popraw zapisaną próbę (`{rating?, note?, tried_at?}`; bez powiadomień) |
 | GET | `/api/ranking` | produkty wg średniej oceny |
 | GET | `/api/stats` | liczniki: dzień od startu, produkty, cele |

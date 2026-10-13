@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Category, api } from '../api';
 import { NotePresets } from '../components/NotePresets';
 import { CategoryPicker } from '../components/CategoryPicker';
+import { EmojiField } from '../components/EmojiField';
 
 interface Props {
   categories: Category[];
@@ -14,6 +15,7 @@ const DEFAULT_TARGET = 15;
 
 export function AddFoodPage({ categories, onBack, onAdded, onCreateCategory }: Props) {
   const [name, setName] = useState('');
+  const [emoji, setEmoji] = useState('');
   const [cats, setCats] = useState<string[]>(['owoce']);
   const [target, setTarget] = useState(String(DEFAULT_TARGET));
   const [notes, setNotes] = useState('');
@@ -35,6 +37,7 @@ export function AddFoodPage({ categories, onBack, onAdded, onCreateCategory }: P
     try {
       await api.createFood({
         name: n,
+        emoji,
         categories: cats,
         target: Math.max(1, parseInt(target) || DEFAULT_TARGET),
         notes,
@@ -78,6 +81,11 @@ export function AddFoodPage({ categories, onBack, onAdded, onCreateCategory }: P
             required
           />
         </label>
+
+        <div class="field">
+          <span class="field-label">Ikonka (opcjonalnie — bez niej dobierzemy po nazwie)</span>
+          <EmojiField value={emoji} onChange={setEmoji} label="Ikonka produktu" />
+        </div>
 
         <div class="field">
           <span class="field-label">Kategorie</span>

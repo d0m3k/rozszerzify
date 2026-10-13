@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { RATINGS } from '../api';
+import { RATINGS, localInputValue } from '../api';
 import { NotePresets } from './NotePresets';
 
 interface Props {
@@ -7,13 +7,6 @@ interface Props {
   /** triedAt is an RFC3339 timestamp, or undefined for "just now". */
   onSelect: (rating: number, note: string, triedAt?: string) => void;
   onClose: () => void;
-}
-
-// <input type="datetime-local"> talks local wall-clock time ("2026-10-13T14:30"),
-// which is exactly what the parent sees on their phone.
-function localInputValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function RatingSheet({ foodName, onSelect, onClose }: Props) {
