@@ -106,6 +106,9 @@ func main() {
 			r.Put("/foods/{id}/log/{logId}", foodH.UpdateLog)
 			r.Delete("/foods/{id}/log/{logId}", foodH.DeleteLog)
 
+			// Account-wide feed of tries across every food ("Ostatnie próby").
+			r.Get("/log", foodH.RecentLog)
+
 			r.Get("/categories", catH.List)
 			r.Post("/categories", catH.Create)
 			r.Put("/categories/{id}", catH.Update)

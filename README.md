@@ -21,6 +21,9 @@ co mu najbardziej podchodzi.
 - **Cel prób** (domyślnie 15) — pasek postępu na każdym produkcie
 - **🏆 Ranking smaków** — średnia ocen, medale dla top 3
 - **Historia prób** — kiedy, z jaką notatką i oceną
+- **🕒 Ostatnie próby** — jeden wspólny dziennik wszystkich produktów:
+  pogrupowany po dniach, z godziną, oceną i notatką; tapnięcie wpisu otwiera
+  dany produkt (a starsze wpisy doładowują się „Pokaż starsze”)
 - **🕒 Data próby do ustawienia** — przy zapisie próby można cofnąć się w czasie
   („zjadł to wczoraj na kolację”), domyślnie *teraz*; kolejność historii i
   „ostatniej próby” liczy się po dacie zjedzenia, nie po dacie wpisania
@@ -117,6 +120,7 @@ Backend słucha na `127.0.0.1:8081` (8080 zajmuje rybaspotting).
 | POST | `/api/foods/{id}/try` | `{rating: 1–4, note?, tried_at?}` — zarejestruj próbę (`tried_at` = RFC3339, domyślnie teraz; nie z przyszłości) |
 | POST | `/api/foods/{id}/untry` | cofnij ostatnią próbę (pomyłka) |
 | GET | `/api/foods/{id}/log` | historia prób |
+| GET | `/api/log` | wspólny dziennik prób wszystkich produktów (`?limit=` 1–200, domyślnie 50; `?offset=`) |
 | PUT | `/api/foods/{id}/log/{logId}` | popraw zapisaną próbę (`{rating?, note?, tried_at?}`; bez powiadomień) |
 | GET | `/api/ranking` | produkty wg średniej oceny |
 | GET | `/api/stats` | liczniki: dzień od startu, produkty, cele |

@@ -8,16 +8,17 @@ import { FoodDetailPage } from './pages/FoodDetail';
 import { AddFoodPage } from './pages/AddFood';
 import { SearchPage } from './pages/Search';
 import { RankingPage } from './pages/Ranking';
+import { RecentPage } from './pages/Recent';
 import { RatingSheet } from './components/RatingSheet';
 
-type Page = 'foods' | 'ranking' | 'add' | 'search' | 'detail';
+type Page = 'foods' | 'ranking' | 'recent' | 'add' | 'search' | 'detail';
 
 interface Toast {
   msg: string;
   action?: { label: string; fn: () => void };
 }
 
-// ── Hash routing: #/foods, #/foods/{id}, #/ranking, #/add, #/search ─────
+// ── Hash routing: #/foods, #/foods/{id}, #/ranking, #/recent, #/add, #/search ─────
 function parseHash(): { page: Page; id: number } {
   const h = window.location.hash.replace(/^#\/?/, '');
   const parts = h.split('/').filter(Boolean);
@@ -26,7 +27,7 @@ function parseHash(): { page: Page; id: number } {
     return { page: 'detail', id: Number.isFinite(id) ? id : 0 };
   }
   if (parts[0] === 'foods') return { page: 'foods', id: 0 };
-  if (parts[0] === 'ranking' || parts[0] === 'add' || parts[0] === 'search') {
+  if (parts[0] === 'ranking' || parts[0] === 'recent' || parts[0] === 'add' || parts[0] === 'search') {
     return { page: parts[0], id: 0 };
   }
   return { page: 'foods', id: 0 };
@@ -241,6 +242,13 @@ export function App() {
             onOpenDetail={(id) => go('detail', id)}
           />
         )}
+        {page === 'recent' && (
+          <RecentPage
+            tick={tick}
+            categories={categories}
+            onOpenDetail={(id) => go('detail', id)}
+          />
+        )}
         {page === 'search' && (
           <SearchPage
             foods={foods}
@@ -277,6 +285,10 @@ export function App() {
         <button class={page === 'foods' ? 'nav-btn active' : 'nav-btn'} onClick={() => go('foods')}>
           <span class="nav-icon">🍽️</span>
           <span>Jedzenie</span>
+        </button>
+        <button class={page === 'recent' ? 'nav-btn active' : 'nav-btn'} onClick={() => go('recent')}>
+          <span class="nav-icon">🕒</span>
+          <span>Ostatnie</span>
         </button>
         <button class="nav-add" onClick={() => go('search')} aria-label="szybkie dodawanie / wyszukiwanie">
           +

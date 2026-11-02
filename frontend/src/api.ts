@@ -42,6 +42,15 @@ export interface LogEntry {
   tried_at: string;
 }
 
+/** One try in the account-wide "Ostatnie próby" feed. */
+export interface RecentLogEntry extends LogEntry {
+  food_id: number;
+  food_name: string;
+  food_emoji: string;
+  category: string;
+  categories: string[];
+}
+
 export interface RankingEntry {
   food_id: number;
   name: string;
@@ -137,6 +146,8 @@ export const api = {
   untryFood: (id: number) => request<Food>(`/api/foods/${id}/untry`, { method: 'POST' }),
 
   foodLog: (id: number) => request<LogEntry[]>(`/api/foods/${id}/log`),
+  recentLog: (limit = 50, offset = 0) =>
+    request<RecentLogEntry[]>(`/api/log?limit=${limit}&offset=${offset}`),
   updateLog: (foodId: number, logId: number, data: { rating?: number; note?: string; tried_at?: string }) =>
     request<Food>(`/api/foods/${foodId}/log/${logId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLog: (foodId: number, logId: number) =>

@@ -68,6 +68,17 @@ type LogEntry struct {
 	TriedAt time.Time `json:"tried_at"`
 }
 
+// RecentLogEntry is one try in the account-wide feed: the food is denormalised
+// so the "Ostatnie próby" page can render without a second lookup.
+type RecentLogEntry struct {
+	LogEntry
+	FoodID     int      `json:"food_id"`
+	FoodName   string   `json:"food_name"`
+	FoodEmoji  string   `json:"food_emoji"`
+	Category   string   `json:"category"`
+	Categories []string `json:"categories"`
+}
+
 type rankingEntry struct {
 	FoodID      int     `json:"food_id"`
 	Name        string  `json:"name"`
@@ -634,6 +645,59 @@ func (h *FoodHandler) Log(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt); err != nil {
 			continue
 		}
+		entries = append(entries, e)
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// RecentLog lists tries across every food of the account, newest first.
+// Query: limit (default 50, max 200), offset (default 0). The feed is the
+// global counterpart of GET /foods/{id}/log — same ordering (when it was
+// eaten, then insertion) so backdated meals land in the right place.
+func (h *FoodHandler) RecentLog(w http.ResponseWriter, r *http.Request) {
+	limit, offset := 50, 0
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 {
+		limit = v
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("offset")); err == nil && v > 0 {
+		offset = v
+	}
+
+	rows, err := h.DB.Query(
+		`SELECT l.id, l.note, l.rating, l.tried_at,
+		        f.id, f.name, f.emoji, f.category,
+		        COALESCE((SELECT ARRAY(
+		            SELECT c.name FROM rz_food_categories fc
+		            JOIN rz_categories c ON c.id = fc.category_id
+		            WHERE fc.food_id = f.id
+		            ORDER BY (c.name <> f.category), c.sort_order, c.name
+		        )), ARRAY[]::text[])
+		 FROM rz_food_log l
+		 JOIN rz_foods f ON f.id = l.food_id
+		 WHERE l.user_id = $1 AND f.user_id = $1
+		 ORDER BY l.tried_at DESC, l.id DESC
+		 LIMIT $2 OFFSET $3`,
+		contextUserID(r), limit, offset,
+	)
+	if err != nil {
+		log.Printf("[FOODS] recent log: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer rows.Close()
+
+	entries := []RecentLogEntry{}
+	for rows.Next() {
+		var e RecentLogEntry
+		var categories pq.StringArray
+		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt,
+			&e.FoodID, &e.FoodName, &e.FoodEmoji, &e.Category, &categories); err != nil {
+			continue
+		}
+		e.Categories = categorySlice(categories)
 		entries = append(entries, e)
 	}
 	writeJSON(w, http.StatusOK, entries)
