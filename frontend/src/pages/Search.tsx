@@ -120,6 +120,7 @@ export function SearchPage({ foods, categories, onBack, onPick, onQuickAdd, onFu
                 {foodCategories(f).map(categoryLabel).join(' · ')}
                 {f.tries > 0 ? ` · ${f.tries} ${f.tries === 1 ? 'próba' : f.tries < 5 ? 'próby' : 'prób'}` : ''}
               </span>
+              {f.meal_names.length > 0 && <span class="search-meals">🍲 w daniach: {f.meal_names.join(' · ')}</span>}
             </div>
             <span class="search-tries">
               {f.tries >= f.target ? '🎉' : `${f.tries}/${f.target}`}

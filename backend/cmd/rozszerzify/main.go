@@ -78,6 +78,7 @@ func main() {
 	authH := &handlers.AuthHandler{DB: conn, Cfg: cfg, Notify: notifier}
 	foodH := &handlers.FoodHandler{DB: conn, Cfg: cfg}
 	catH := &handlers.CategoryHandler{DB: conn}
+	mealH := &handlers.MealHandler{DB: conn}
 
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)
@@ -113,6 +114,17 @@ func main() {
 			r.Post("/categories", catH.Create)
 			r.Put("/categories/{id}", catH.Update)
 			r.Delete("/categories/{id}", catH.Delete)
+
+			r.Get("/meals", mealH.List)
+			r.Post("/meals", mealH.Create)
+			r.Get("/meals/{id}", mealH.Get)
+			r.Put("/meals/{id}", mealH.Update)
+			r.Delete("/meals/{id}", mealH.Delete)
+			r.Post("/meals/{id}/try", mealH.Try)
+			r.Post("/meals/{id}/untry", mealH.Untry)
+			r.Get("/meals/{id}/log", mealH.Log)
+			r.Put("/meals/{id}/log/{logId}", mealH.UpdateLog)
+			r.Delete("/meals/{id}/log/{logId}", mealH.DeleteLog)
 
 			r.Get("/ranking", foodH.Ranking)
 			r.Get("/stats", foodH.Stats)

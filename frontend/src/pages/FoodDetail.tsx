@@ -104,6 +104,11 @@ export function FoodDetailPage({ food, categories, onBack, onPlus, onRemoveLog, 
           <span class="detail-cat">
             {foodCategories(food).map((c) => `${categoryEmoji(c, categories)} ${categoryLabel(c)}`).join(' · ')}
           </span>
+          <span class="detail-meals">
+            {food.meal_names.length > 0
+              ? `🍲 składnik dań: ${food.meal_names.join(' · ')}`
+              : '🍲 nie należy do żadnego dania'}
+          </span>
         </div>
       </div>
 
@@ -240,6 +245,7 @@ export function FoodDetailPage({ food, categories, onBack, onPlus, onRemoveLog, 
                   <span class="log-emoji">{ratingMeta(l.rating).emoji}</span>
                   <span class="log-body">
                     <span class="log-note">{l.note || ratingMeta(l.rating).label.toLowerCase()}</span>
+                    {l.meal_name && <span class="log-meal">🍲 próba z dania «{l.meal_name}»</span>}
                     <span class="log-date">{fmtDateTime(l.tried_at)}</span>
                   </span>
                   <button class="log-edit-btn" aria-label="edytuj tę próbę" onClick={() => startLogEdit(l)}>

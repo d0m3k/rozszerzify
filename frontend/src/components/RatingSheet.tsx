@@ -4,12 +4,14 @@ import { NotePresets } from './NotePresets';
 
 interface Props {
   foodName: string;
+  /** Extra line under the title, e.g. the meal the food belongs to. */
+  subtitle?: string;
   /** triedAt is an RFC3339 timestamp, or undefined for "just now". */
   onSelect: (rating: number, note: string, triedAt?: string) => void;
   onClose: () => void;
 }
 
-export function RatingSheet({ foodName, onSelect, onClose }: Props) {
+export function RatingSheet({ foodName, subtitle, onSelect, onClose }: Props) {
   const [note, setNote] = useState('');
   const [when, setWhen] = useState(() => localInputValue(new Date()));
   const [editWhen, setEditWhen] = useState(false);
@@ -28,6 +30,7 @@ export function RatingSheet({ foodName, onSelect, onClose }: Props) {
         <h3 class="sheet-title">
           Jak zjadł <b>{foodName}</b>?
         </h3>
+        {subtitle && <p class="sheet-subtitle">{subtitle}</p>}
         <input
           class="input sheet-note"
           value={note}

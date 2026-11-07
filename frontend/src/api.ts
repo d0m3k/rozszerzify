@@ -18,6 +18,37 @@ export interface Food {
   last_note: string;
   last_rating: number;
   recent_ratings: number[];
+  /** Meals this food is an ingredient of. */
+  meal_names: string[];
+  /** Meal that produced the latest try ('' when it was a standalone try). */
+  last_meal_name: string;
+}
+
+export interface MealItem {
+  food_id: number;
+  name: string;
+  emoji: string;
+  category: string;
+}
+
+/** A meal (danie/posiłek): a reusable set of existing foods. */
+export interface Meal {
+  id: number;
+  name: string;
+  emoji: string;
+  notes: string;
+  tries: number;
+  target: number;
+  created_at: string;
+  updated_at: string;
+  last_tried_at: string | null;
+  rating_avg: number;
+  rating_count: number;
+  rating_sum: number;
+  last_note: string;
+  last_rating: number;
+  recent_ratings: number[];
+  items: MealItem[];
 }
 
 export interface Stats {
@@ -40,6 +71,9 @@ export interface LogEntry {
   note: string;
   rating: number;
   tried_at: string;
+  /** Set when the try was recorded as part of eating a meal. */
+  meal_log_id: number | null;
+  meal_name: string;
 }
 
 /** One try in the account-wide "Ostatnie próby" feed. */
@@ -152,6 +186,26 @@ export const api = {
     request<Food>(`/api/foods/${foodId}/log/${logId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLog: (foodId: number, logId: number) =>
     request<Food>(`/api/foods/${foodId}/log/${logId}`, { method: 'DELETE' }),
+
+  listMeals: () => request<Meal[]>('/api/meals'),
+  getMeal: (id: number) => request<Meal>(`/api/meals/${id}`),
+  createMeal: (data: { name: string; emoji?: string; notes?: string; target?: number; items: number[] }) =>
+    request<Meal>('/api/meals', { method: 'POST', body: JSON.stringify(data) }),
+  updateMeal: (id: number, data: { name?: string; emoji?: string; notes?: string; target?: number; items?: number[] }) =>
+    request<Meal>(`/api/meals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteMeal: (id: number) => request<{ ok: boolean }>(`/api/meals/${id}`, { method: 'DELETE' }),
+  tryMeal: (id: number, rating: number, note?: string, triedAt?: string) =>
+    request<Meal>(`/api/meals/${id}/try`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, note: note || '', tried_at: triedAt || '' }),
+    }),
+  untryMeal: (id: number) => request<Meal>(`/api/meals/${id}/untry`, { method: 'POST' }),
+  mealLog: (id: number) => request<LogEntry[]>(`/api/meals/${id}/log`),
+  updateMealLog: (mealId: number, logId: number, data: { rating?: number; note?: string; tried_at?: string }) =>
+    request<Meal>(`/api/meals/${mealId}/log/${logId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteMealLog: (mealId: number, logId: number) =>
+    request<Meal>(`/api/meals/${mealId}/log/${logId}`, { method: 'DELETE' }),
+
   ranking: () => request<RankingEntry[]>('/api/ranking'),
   stats: () => request<Stats>('/api/stats'),
 };
@@ -225,6 +279,16 @@ export function foodIcon(f: Food, cats?: Category[]): string {
   return f.emoji || foodEmoji(f.name, f.category, cats);
 }
 
+/** Icon of a meal: its own emoji, else a bowl. */
+export function mealIcon(m: Meal): string {
+  return m.emoji || '🍲';
+}
+
+/** Icon of one ingredient of a meal. */
+export function mealItemIcon(it: MealItem, cats?: Category[]): string {
+  return it.emoji || foodEmoji(it.name, it.category, cats);
+}
+
 /** Emoji offered as one-tap picks when setting a food/category icon. */
 export const EMOJI_PALETTE = [
   '🍎', '🍐', '🍌', '🍑', '🍓', '🫐', '🥭', '🍇',
@@ -273,11 +337,16 @@ export function normalize(s: string): string {
 
 export type FoodStatus = 'new' | 'revisit' | 'progress' | 'ok';
 
-export function foodStatus(f: Food): FoodStatus {
+export function foodStatus(f: Pick<Food, 'tries' | 'target' | 'last_rating'>): FoodStatus {
   if (f.tries <= 0) return 'new';
   if (f.tries < f.target && f.last_rating >= 1 && f.last_rating <= 2) return 'revisit';
   if (f.tries >= f.target || f.last_rating >= 3) return 'ok';
   return 'progress';
+}
+
+/** Same status rules as a food, applied to a meal's own try counter. */
+export function mealStatus(m: Meal): FoodStatus {
+  return foodStatus(m);
 }
 
 export const STATUS_META: Record<FoodStatus, { label: string; cls: string }> = {

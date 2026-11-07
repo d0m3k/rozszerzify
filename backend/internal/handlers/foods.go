@@ -18,8 +18,8 @@ import (
 // Valid rating levels (how the kid reacted to one try):
 // 1 = nie smakuje, 2 = zjada, ale niechętnie, 3 = smakuje, 4 = bardzo smakuje
 const (
-	RatingMin = 1
-	RatingMax = 4
+	RatingMin     = 1
+	RatingMax     = 4
 	ratingDefault = 3
 )
 
@@ -59,6 +59,12 @@ type Food struct {
 	// small trace of the last few ratings for the "minki" row.
 	LastRating    int   `json:"last_rating"`
 	RecentRatings []int `json:"recent_ratings"`
+
+	// Meals this food is an ingredient of (used to show the composition on
+	// both the meal and the food screen) and the meal behind the latest try
+	// (empty when the food was last offered on its own).
+	MealNames    []string `json:"meal_names"`
+	LastMealName string   `json:"last_meal_name"`
 }
 
 type LogEntry struct {
@@ -66,6 +72,10 @@ type LogEntry struct {
 	Note    string    `json:"note"`
 	Rating  int       `json:"rating"`
 	TriedAt time.Time `json:"tried_at"`
+
+	// Set when this try was recorded as part of eating a meal.
+	MealLogID *int   `json:"meal_log_id"`
+	MealName  string `json:"meal_name"`
 }
 
 // RecentLogEntry is one try in the account-wide feed: the food is denormalised
@@ -95,6 +105,7 @@ func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 	f := &Food{}
 	var recent pq.Int64Array
 	var categories pq.StringArray
+	var mealNames pq.StringArray
 	err := conn.QueryRow(
 		`SELECT f.id, f.name, f.emoji, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
@@ -108,18 +119,26 @@ func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 		            JOIN rz_categories c ON c.id = fc.category_id
 		            WHERE fc.food_id = f.id
 		            ORDER BY (c.name <> f.category), c.sort_order, c.name
-		        )), ARRAY[]::text[])
+		        )), ARRAY[]::text[]),
+		        COALESCE((SELECT ARRAY(
+		            SELECT m.name FROM rz_meal_items mi
+		            JOIN rz_meals m ON m.id = mi.meal_id
+		            WHERE mi.food_id = f.id
+		            ORDER BY m.name
+		        )), ARRAY[]::text[]),
+		        COALESCE((SELECT l.meal_name FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), '')
 		 FROM rz_foods f
 		 WHERE f.id = $1 AND f.user_id = $2`,
 		id, userID,
 	).Scan(&f.ID, &f.Name, &f.Emoji, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories)
+		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories, &mealNames, &f.LastMealName)
 	if err != nil {
 		log.Printf("[FOODS] fetch id=%d: %v", id, err)
 		return nil, err
 	}
 	f.RecentRatings = intSlice(recent)
 	f.Categories = categorySlice(categories)
+	f.MealNames = categorySlice(mealNames)
 	return f, nil
 }
 
@@ -140,7 +159,14 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		            JOIN rz_categories c ON c.id = fc.category_id
 		            WHERE fc.food_id = f.id
 		            ORDER BY (c.name <> f.category), c.sort_order, c.name
-		        )), ARRAY[]::text[])
+		        )), ARRAY[]::text[]),
+		        COALESCE((SELECT ARRAY(
+		            SELECT m.name FROM rz_meal_items mi
+		            JOIN rz_meals m ON m.id = mi.meal_id
+		            WHERE mi.food_id = f.id
+		            ORDER BY m.name
+		        )), ARRAY[]::text[]),
+		        COALESCE((SELECT l.meal_name FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), '')
 		 FROM rz_foods f
 		 WHERE f.user_id = $1
 		 ORDER BY f.id`,
@@ -158,13 +184,15 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		var f Food
 		var recent pq.Int64Array
 		var categories pq.StringArray
+		var mealNames pq.StringArray
 		if err := rows.Scan(&f.ID, &f.Name, &f.Emoji, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories); err != nil {
+			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories, &mealNames, &f.LastMealName); err != nil {
 			log.Printf("[FOODS] scan: %v", err)
 			continue
 		}
 		f.RecentRatings = intSlice(recent)
 		f.Categories = categorySlice(categories)
+		f.MealNames = categorySlice(mealNames)
 		foods = append(foods, f)
 	}
 	writeJSON(w, http.StatusOK, foods)
@@ -625,7 +653,7 @@ func (h *FoodHandler) Log(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(
-		`SELECT l.id, l.note, l.rating, l.tried_at
+		`SELECT l.id, l.note, l.rating, l.tried_at, l.meal_log_id, l.meal_name
 		 FROM rz_food_log l
 		 JOIN rz_foods f ON f.id = l.food_id
 		 WHERE l.food_id = $1 AND f.user_id = $2
@@ -642,7 +670,7 @@ func (h *FoodHandler) Log(w http.ResponseWriter, r *http.Request) {
 	entries := []LogEntry{}
 	for rows.Next() {
 		var e LogEntry
-		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt, &e.MealLogID, &e.MealName); err != nil {
 			continue
 		}
 		entries = append(entries, e)
@@ -667,7 +695,7 @@ func (h *FoodHandler) RecentLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.DB.Query(
-		`SELECT l.id, l.note, l.rating, l.tried_at,
+		`SELECT l.id, l.note, l.rating, l.tried_at, l.meal_log_id, l.meal_name,
 		        f.id, f.name, f.emoji, f.category,
 		        COALESCE((SELECT ARRAY(
 		            SELECT c.name FROM rz_food_categories fc
@@ -693,7 +721,7 @@ func (h *FoodHandler) RecentLog(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e RecentLogEntry
 		var categories pq.StringArray
-		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt,
+		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt, &e.MealLogID, &e.MealName,
 			&e.FoodID, &e.FoodName, &e.FoodEmoji, &e.Category, &categories); err != nil {
 			continue
 		}
@@ -1052,13 +1080,13 @@ func (h *FoodHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"start_date":       startDate,
-		"started":          started,
-		"days_since_start": daysSinceStart,
-		"days_until_start": daysUntilStart,
-		"birth_date":       birthDate,
-		"baby_age_months":  ageMonths,
-		"baby_age_days":    ageDays,
+		"start_date":        startDate,
+		"started":           started,
+		"days_since_start":  daysSinceStart,
+		"days_until_start":  daysUntilStart,
+		"birth_date":        birthDate,
+		"baby_age_months":   ageMonths,
+		"baby_age_days":     ageDays,
 		"foods_total":       foodsTotal,
 		"foods_ok":          foodsOK,
 		"foods_at_target":   atTarget,

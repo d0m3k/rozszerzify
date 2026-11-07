@@ -19,6 +19,11 @@ co mu najbardziej podchodzi.
 - **+1 po każdym posiłku** — duży przycisk, zero klikania w menu
 - **Ocena próby 1–4**: 😖 nie smakuje · 😐 zjada, ale niechętnie · 🙂 smakuje · 🤩 bardzo smakuje
 - **Cel prób** (domyślnie 15) — pasek postępu na każdym produkcie
+- **🍲 Dania (posiłki)** — danie to zestaw istniejących produktów (np. „kasza
+  z marchewką”); jedno tapnięcie **+1** przy daniu zwiększa licznik dania
+  **i każdego produktu w składzie**, a historia produktu oznacza próbę jako
+  „🍲 próba z dania «…»”. Skład dania widać na liście dań, w szczegółach oraz
+  na karcie produktu („składnik dań: …”)
 - **🏆 Ranking smaków** — średnia ocen, medale dla top 3
 - **Historia prób** — kiedy, z jaką notatką i oceną
 - **🕒 Ostatnie próby** — jeden wspólny dziennik wszystkich produktów:
@@ -119,8 +124,15 @@ Backend słucha na `127.0.0.1:8081` (8080 zajmuje rybaspotting).
 | PUT/DELETE | `/api/categories/{id}` | nazwa / ikonka / kolejność / usunięcie (produkty wracają do pozostałych kategorii, w skrajnym razie do `inne`) |
 | POST | `/api/foods/{id}/try` | `{rating: 1–4, note?, tried_at?}` — zarejestruj próbę (`tried_at` = RFC3339, domyślnie teraz; nie z przyszłości) |
 | POST | `/api/foods/{id}/untry` | cofnij ostatnią próbę (pomyłka) |
-| GET | `/api/foods/{id}/log` | historia prób |
+| GET | `/api/foods/{id}/log` | historia prób (każda próba ma `meal_log_id`/`meal_name`, gdy pochodzi z dania) |
 | GET | `/api/log` | wspólny dziennik prób wszystkich produktów (`?limit=` 1–200, domyślnie 50; `?offset=`) |
 | PUT | `/api/foods/{id}/log/{logId}` | popraw zapisaną próbę (`{rating?, note?, tried_at?}`; bez powiadomień) |
+| GET | `/api/meals` | lista dań z pełnym składem (`items[]`) i agregatami ocen |
+| POST | `/api/meals` | nowe danie (`{name, emoji?, notes?, target?, items: [food_id, …]}`) |
+| GET/PUT/DELETE | `/api/meals/{id}` | szczegóły / edycja (te same pola; `items` zastępuje skład) / usunięcie |
+| POST | `/api/meals/{id}/try` | `{rating: 1–4, note?, tried_at?}` — zjedzone danie: +1 dla dania i każdego produktu |
+| POST | `/api/meals/{id}/untry` | cofnij ostatnie zjedzone danie (razem z próbami produktów) |
+| GET | `/api/meals/{id}/log` | historia zjedzonych dań |
+| PUT/DELETE | `/api/meals/{id}/log/{logId}` | popraw / usuń zdarzenie dania (zmiany i usunięcie odbijają się na próbach produktów) |
 | GET | `/api/ranking` | produkty wg średniej oceny |
 | GET | `/api/stats` | liczniki: dzień od startu, produkty, cele |

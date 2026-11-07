@@ -65,6 +65,7 @@ function FoodRow({ f, cats, showCat, onOpen, onPlus }: { f: Food; cats: Category
             {f.tries >= f.target ? '🎉 cel' : `${f.tries}/${f.target} prób`}
           </span>
         </div>
+        {f.last_meal_name && <div class="food-meal-line">🍲 ostatnia próba z dania «{f.last_meal_name}»</div>}
         {f.last_note && <div class="food-last-note">📝 {f.last_note}</div>}
       </div>
       <div class="food-actions">

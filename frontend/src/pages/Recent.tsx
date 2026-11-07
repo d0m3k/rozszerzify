@@ -129,6 +129,7 @@ export function RecentPage({ tick, categories, onOpenDetail }: Props) {
                     <span class="recent-meta">
                       {meta.emoji} {e.note || meta.label.toLowerCase()}
                     </span>
+                    {e.meal_name && <span class="recent-meal">🍲 z dania «{e.meal_name}»</span>}
                   </span>
                   <span class="recent-time">
                     {new Date(e.tried_at).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
