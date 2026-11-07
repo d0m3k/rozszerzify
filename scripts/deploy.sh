@@ -5,40 +5,44 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-HOST="amy"   # ~/.ssh/config → shell.dom3k.pl via cloudflared
+HOST="${DEPLOY_HOST:-amy}"   # default: ~/.ssh/config → shell.dom3k.pl via cloudflared
+PORT="${DEPLOY_PORT:-}"      # DEPLOY_PORT=10135 is the direct fallback when the tunnel is down
+
+SSH=(ssh); SCP=(scp)
+if [ -n "$PORT" ]; then SSH=(ssh -p "$PORT"); SCP=(scp -P "$PORT"); fi
 
 echo "=== Building ==="
 ./scripts/build.sh
 
 echo "=== Preparing /opt/rozszerzify on VPS ==="
-ssh "$HOST" "mkdir -p /opt/rozszerzify/frontend"
+"${SSH[@]}" "$HOST" "mkdir -p /opt/rozszerzify/frontend"
 
 echo "=== Stopping service ==="
-ssh "$HOST" "systemctl stop rozszerzify || true"
+"${SSH[@]}" "$HOST" "systemctl stop rozszerzify || true"
 
 echo "=== Copying backend binary ==="
-scp build/rozszerzify "$HOST:/opt/rozszerzify/"
+"${SCP[@]}" build/rozszerzify "$HOST:/opt/rozszerzify/"
 
 echo "=== Copying frontend ==="
-scp -r frontend/dist "$HOST:/opt/rozszerzify/frontend/"
+"${SCP[@]}" -r frontend/dist "$HOST:/opt/rozszerzify/frontend/"
 # scp preserves Termux's restrictive modes — nginx (www-data) needs read+exec
-ssh "$HOST" "chmod -R a+rX /opt/rozszerzify/frontend"
+"${SSH[@]}" "$HOST" "chmod -R a+rX /opt/rozszerzify/frontend"
 
 echo "=== Copying systemd unit ==="
-scp deploy/rozszerzify.service "$HOST:/etc/systemd/system/"
-ssh "$HOST" "systemctl daemon-reload"
+"${SCP[@]}" deploy/rozszerzify.service "$HOST:/etc/systemd/system/"
+"${SSH[@]}" "$HOST" "systemctl daemon-reload"
 
 echo "=== Copying nginx config ==="
-scp deploy/nginx.conf "$HOST:/etc/nginx/sites-available/rozszerzify"
-ssh "$HOST" "ln -sf /etc/nginx/sites-available/rozszerzify /etc/nginx/sites-enabled/rozszerzify"
-ssh "$HOST" "nginx -t && systemctl reload nginx || systemctl restart nginx"
+"${SCP[@]}" deploy/nginx.conf "$HOST:/etc/nginx/sites-available/rozszerzify"
+"${SSH[@]}" "$HOST" "ln -sf /etc/nginx/sites-available/rozszerzify /etc/nginx/sites-enabled/rozszerzify"
+"${SSH[@]}" "$HOST" "nginx -t && systemctl reload nginx || systemctl restart nginx"
 
 echo "=== .env (first run only) ==="
-ssh "$HOST" "test -f /opt/rozszerzify/.env && echo '.env already exists — not touching it' || echo '.env MISSING — create it manually (see notes)'"
+"${SSH[@]}" "$HOST" "test -f /opt/rozszerzify/.env && echo '.env already exists — not touching it' || echo '.env MISSING — create it manually (see notes)'"
 
 echo "=== Starting service ==="
-ssh "$HOST" "systemctl enable rozszerzify && systemctl start rozszerzify"
-ssh "$HOST" "sleep 1 && systemctl --no-pager status rozszerzify | head -8"
+"${SSH[@]}" "$HOST" "systemctl enable rozszerzify && systemctl start rozszerzify"
+"${SSH[@]}" "$HOST" "sleep 1 && systemctl --no-pager status rozszerzify | head -8"
 
 echo ""
 echo "=== Done! ==="

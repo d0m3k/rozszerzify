@@ -283,9 +283,12 @@ func normalizeMealFields(name, emoji, notes *string, target *int) (string, strin
 
 // lockMealGraph serializes composition writes per account. Without it two
 // concurrent requests could each pass the "does it already contain me?"
-// check and together create a cycle.
+// check and together create a cycle. The key is namespaced: this database is
+// shared with rybaspotting, so a bare user id could collide with another app's
+// advisory locks. Transaction-scoped → released automatically on commit or
+// rollback (no leaked locks, no manual unlock path).
 func lockMealGraph(tx *sql.Tx, uid int) error {
-	_, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, int64(uid))
+	_, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext('rozszerzify.meal-graph'), $1::int)`, uid)
 	return err
 }
 
