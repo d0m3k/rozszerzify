@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { loadAuth, clearAuth, saveAuth, AuthState } from './stores/auth';
-import { api, Category, Food, LogEntry, Meal, RankingEntry, Stats, mealItemIcon, normalize } from './api';
+import { api, Category, Food, LogEntry, Meal, RankingEntry, Stats, mealItemIcon, normalize, subMealIcon } from './api';
 import { LoginPage } from './pages/Login';
 import { RegisterPage } from './pages/Register';
 import { FoodsPage } from './pages/Foods';
@@ -131,7 +131,13 @@ export function App() {
   async function handleTryMeal(meal: Meal, rating: number, note?: string, triedAt?: string) {
     try {
       await api.tryMeal(meal.id, rating, note, triedAt);
-      showToast(`✓ ${meal.name} — +1 danie i ${meal.items.length} ${meal.items.length === 1 ? 'produkt' : 'produkty'}`);
+      const parts = [
+        `${meal.expanded_foods} ${meal.expanded_foods === 1 ? 'produkt' : 'produkty'}`,
+        ...(meal.expanded_meals > 0
+          ? [`${meal.expanded_meals} ${meal.expanded_meals === 1 ? 'danie-składnik' : 'dania-składniki'}`]
+          : []),
+      ];
+      showToast(`✓ ${meal.name} — +1 danie i ${parts.join(' + ')}`);
     } catch {
       /* ignore */
     } finally {
@@ -200,7 +206,7 @@ export function App() {
 
   async function handleSaveMeal(
     mealId: number,
-    patch: { name?: string; emoji?: string; notes?: string; target?: number; items?: number[] },
+    patch: { name?: string; emoji?: string; notes?: string; target?: number; items?: number[]; sub_meals?: number[] },
   ) {
     await api.updateMeal(mealId, patch);
     refresh();
@@ -315,6 +321,7 @@ export function App() {
         {page === 'add-meal' && (
           <AddMealPage
             foods={foods}
+            meals={meals}
             categories={categories}
             onBack={() => go('meals')}
             onAdded={() => { go('meals'); refresh(); showToast('➕ Dodano danie'); }}
@@ -324,6 +331,7 @@ export function App() {
           <MealDetailPage
             meal={selMeal}
             foods={foods}
+            meals={meals}
             categories={categories}
             onBack={() => go('meals')}
             onPlus={() => setMealSheetFor(selMeal)}
@@ -331,6 +339,7 @@ export function App() {
             onSave={(patch) => handleSaveMeal(selMeal.id, patch)}
             onDelete={() => handleDeleteMeal(selMeal.id)}
             onOpenFood={(id) => go('detail', id)}
+            onOpenMeal={(id) => go('meal', id)}
           />
         )}
         {page === 'ranking' && (
@@ -417,7 +426,10 @@ export function App() {
       {mealSheetFor && (
         <RatingSheet
           foodName={mealSheetFor.name}
-          subtitle={`🍲 danie z: ${mealSheetFor.items.map((it) => `${mealItemIcon(it, categories)} ${it.name}`).join(' · ')}`}
+          subtitle={`🍲 danie z: ${[
+            ...mealSheetFor.items.map((it) => `${mealItemIcon(it, categories)} ${it.name}`),
+            ...mealSheetFor.sub_meals.map((sm) => `${subMealIcon(sm)} ${sm.name}`),
+          ].join(' · ')}`}
           onSelect={(r, note, triedAt) => handleTryMeal(mealSheetFor, r, note, triedAt)}
           onClose={() => setMealSheetFor(null)}
         />

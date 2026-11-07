@@ -14,23 +14,27 @@ import {
   mealStatus,
   progressPct,
   ratingMeta,
+  subMealIcon,
 } from '../api';
 import { EmojiField } from '../components/EmojiField';
 import { MealFoodPicker } from '../components/MealFoodPicker';
+import { MealSubMealPicker } from '../components/MealSubMealPicker';
 
 interface Props {
   meal: Meal;
   foods: Food[];
+  meals: Meal[];
   categories: Category[];
   onBack: () => void;
   onPlus: () => void;
   onRemoveLog: (entry: LogEntry) => void;
-  onSave: (patch: { name?: string; emoji?: string; notes?: string; target?: number; items?: number[] }) => Promise<void>;
+  onSave: (patch: { name?: string; emoji?: string; notes?: string; target?: number; items?: number[]; sub_meals?: number[] }) => Promise<void>;
   onDelete: () => void;
   onOpenFood: (id: number) => void;
+  onOpenMeal: (id: number) => void;
 }
 
-export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemoveLog, onSave, onDelete, onOpenFood }: Props) {
+export function MealDetailPage({ meal, foods, meals, categories, onBack, onPlus, onRemoveLog, onSave, onDelete, onOpenFood, onOpenMeal }: Props) {
   const st = mealStatus(meal);
   const [log, setLog] = useState<LogEntry[] | null>(null);
   const [name, setName] = useState(meal.name);
@@ -38,6 +42,7 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
   const [notes, setNotes] = useState(meal.notes);
   const [target, setTarget] = useState(String(meal.target));
   const [items, setItems] = useState<number[]>(meal.items.map((it) => it.food_id));
+  const [subMeals, setSubMeals] = useState<number[]>(meal.sub_meals.map((sm) => sm.meal_id));
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -67,7 +72,8 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
     setNotes(meal.notes);
     setTarget(String(meal.target));
     setItems(meal.items.map((it) => it.food_id));
-  }, [meal.id, meal.name, meal.emoji, meal.notes, meal.target, meal.items]);
+    setSubMeals(meal.sub_meals.map((sm) => sm.meal_id));
+  }, [meal.id, meal.name, meal.emoji, meal.notes, meal.target, meal.items, meal.sub_meals]);
 
   function startLogEdit(l: LogEntry) {
     setEditId(l.id);
@@ -104,6 +110,7 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
         notes,
         target: Math.max(1, parseInt(target) || 15),
         items,
+        sub_meals: subMeals,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -126,7 +133,8 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
             <span class={`status-badge ${STATUS_META[st].cls}`}>{STATUS_META[st].label}</span>
           </h2>
           <span class="detail-cat">
-            🍲 danie · {meal.items.length} {meal.items.length === 1 ? 'produkt' : meal.items.length < 5 ? 'produkty' : 'produktów'} w składzie
+            🍲 danie · {meal.items.length} {meal.items.length === 1 ? 'produkt' : meal.items.length < 5 ? 'produkty' : 'produktów'}
+            {meal.sub_meals.length > 0 && <> · {meal.sub_meals.length} {meal.sub_meals.length === 1 ? 'danie' : 'dania'} w składzie</>}
           </span>
         </div>
       </div>
@@ -150,7 +158,12 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
           />
         </div>
         <p class="detail-hint">
-          +1 dla dania oznacza zjedzony posiłek: próba rośnie też u każdego produktu ze składu.
+          +1 dla dania oznacza zjedzony posiłek: próba rośnie też u {meal.expanded_foods}{' '}
+          {meal.expanded_foods === 1 ? 'produktu' : 'produktów'}
+          {meal.expanded_meals > 0 && (
+            <> i {meal.expanded_meals} {meal.expanded_meals === 1 ? 'dania-składnika' : 'dań-składników'}</>
+          )}
+          . Ten sam składnik liczony jest tylko raz.
         </p>
       </div>
 
@@ -165,11 +178,33 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
             </button>
           ))}
         </div>
+
+        {meal.sub_meals.length > 0 && (
+          <>
+            <h4 class="meal-sub-heading">Dania w składzie</h4>
+            <div class="meal-detail-items">
+              {meal.sub_meals.map((sm) => (
+                <button class="meal-detail-item meal-detail-sub" key={sm.meal_id} onClick={() => onOpenMeal(sm.meal_id)}>
+                  <span class="meal-detail-item-emoji">{subMealIcon(sm)}</span>
+                  <span class="meal-detail-item-name">{sm.name}</span>
+                  <span class="meal-sub-badge">danie</span>
+                  <span class="meal-detail-item-go">›</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
         <p class="cat-hint">
-          Każde zjedzenie dania zapisuje próbę każdemu z tych produktów — w historii produktu zobaczysz, że
-          pochodzi z tego dania. Zmień skład poniżej i zapisz.
+          Każde zjedzenie dania zapisuje próbę każdemu produktowi oraz każdemu daniu-składnikowi (bez powtórzeń) —
+          w ich historiach zobaczysz, że pochodzą z tego dania. Zmień skład poniżej i zapisz.
         </p>
+
+        <span class="field-label">Produkty</span>
         <MealFoodPicker foods={foods} categories={categories} selected={items} onChange={setItems} />
+
+        <span class="field-label meal-sub-label">Dania-składniki</span>
+        <MealSubMealPicker meals={meals} mealId={meal.id} selected={subMeals} onChange={setSubMeals} />
       </section>
 
       {meal.rating_count > 0 && (
@@ -212,8 +247,8 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
           <span class="field-label">Notatki</span>
           <textarea class="input" rows={3} value={notes} onInput={(e) => setNotes((e.target as HTMLTextAreaElement).value)} placeholder="np. podawać z łyżeczki, ciepłe…" />
         </label>
-        {items.length === 0 && <p class="muted">Danie musi mieć co najmniej jeden produkt.</p>}
-        <button class="btn-primary" onClick={save} disabled={busy || items.length === 0}>
+        {items.length + subMeals.length === 0 && <p class="muted">Danie musi mieć co najmniej jeden produkt lub danie.</p>}
+        <button class="btn-primary" onClick={save} disabled={busy || items.length + subMeals.length === 0}>
           {saved ? '✓ Zapisano' : busy ? 'Zapisywanie…' : 'Zapisz'}
         </button>
       </section>
@@ -275,16 +310,18 @@ export function MealDetailPage({ meal, foods, categories, onBack, onPlus, onRemo
                   <span class="log-body">
                     <span class="log-note">{l.note || ratingMeta(l.rating).label.toLowerCase()}</span>
                     <span class="log-date">
-                      {fmtDateTime(l.tried_at)} · 🍲 {meal.items.length}{' '}
-                      {meal.items.length === 1 ? 'produkt' : 'produkty'} +1
+                      {fmtDateTime(l.tried_at)} ·{' '}
+                      {l.parent_meal ? `🍲 część dania „${l.parent_meal}”` : '🍲 całe danie +1'}
                     </span>
                   </span>
                   <button class="log-edit-btn" aria-label="edytuj tę próbę" onClick={() => startLogEdit(l)}>
                     ✏️
                   </button>
-                  <button class="log-del" aria-label="usuń tę próbę" onClick={() => onRemoveLog(l)}>
-                    ✕
-                  </button>
+                  {!l.parent_meal && (
+                    <button class="log-del" aria-label="usuń tę próbę" onClick={() => onRemoveLog(l)}>
+                      ✕
+                    </button>
+                  )}
                 </li>
               )
             )}

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Category, Food, api } from '../api';
+import { Category, Food, Meal, api } from '../api';
 import { EmojiField } from '../components/EmojiField';
 import { MealFoodPicker } from '../components/MealFoodPicker';
+import { MealSubMealPicker } from '../components/MealSubMealPicker';
 
 interface Props {
   foods: Food[];
+  meals: Meal[];
   categories: Category[];
   onBack: () => void;
   onAdded: (id: number) => void;
@@ -12,15 +14,18 @@ interface Props {
 
 const DEFAULT_TARGET = 15;
 
-export function AddMealPage({ foods, categories, onBack, onAdded }: Props) {
+export function AddMealPage({ foods, meals, categories, onBack, onAdded }: Props) {
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
   const [notes, setNotes] = useState('');
   const [target, setTarget] = useState(String(DEFAULT_TARGET));
   const [items, setItems] = useState<number[]>([]);
+  const [subMeals, setSubMeals] = useState<number[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  const hasComposition = items.length + subMeals.length > 0;
 
   useEffect(() => {
     requestAnimationFrame(() => nameRef.current?.focus());
@@ -29,7 +34,7 @@ export function AddMealPage({ foods, categories, onBack, onAdded }: Props) {
   async function submit(e: Event) {
     e.preventDefault();
     const n = name.trim();
-    if (!n || items.length === 0) return;
+    if (!n || !hasComposition) return;
     setBusy(true);
     setError('');
     try {
@@ -39,6 +44,7 @@ export function AddMealPage({ foods, categories, onBack, onAdded }: Props) {
         notes,
         target: Math.max(1, parseInt(target) || DEFAULT_TARGET),
         items,
+        sub_meals: subMeals,
       });
       onAdded(meal.id);
     } catch (err: unknown) {
@@ -83,8 +89,14 @@ export function AddMealPage({ foods, categories, onBack, onAdded }: Props) {
         <div class="field">
           <span class="field-label">Z czego składa się danie? (wybierz produkty)</span>
           <MealFoodPicker foods={foods} categories={categories} selected={items} onChange={setItems} />
+        </div>
+
+        <div class="field">
+          <span class="field-label">…a może z gotowych dań? (np. zupka na rosole)</span>
+          <MealSubMealPicker meals={meals} mealId={0} selected={subMeals} onChange={setSubMeals} />
           <p class="cat-hint">
-            Zjedzenie dania doda +1 próbę daniu i każdemu wybranemu produktowi. Produkt może należeć do wielu dań.
+            Zjedzenie dania doda +1 daniu, każdemu produktowi <b>i każdemu daniu-składnikowi</b>. Produkt lub danie
+            występujące kilka razy w składzie liczy się tylko raz.
           </p>
         </div>
 
@@ -98,9 +110,9 @@ export function AddMealPage({ foods, categories, onBack, onAdded }: Props) {
           <textarea class="input" rows={2} value={notes} onInput={(e) => setNotes((e.target as HTMLTextAreaElement).value)} placeholder="np. podawać letnie, z łyżeczki…" />
         </label>
 
-        {items.length === 0 && <p class="muted">Wybierz co najmniej jeden produkt.</p>}
+        {!hasComposition && <p class="muted">Wybierz co najmniej jeden produkt lub danie.</p>}
         {error && <div class="form-error">{error}</div>}
-        <button class="btn-primary btn-block btn-lg" type="submit" disabled={busy || !name.trim() || items.length === 0}>
+        <button class="btn-primary btn-block btn-lg" type="submit" disabled={busy || !name.trim() || !hasComposition}>
           {busy ? 'Dodawanie…' : 'Dodaj danie'}
         </button>
       </form>

@@ -31,7 +31,16 @@ export interface MealItem {
   category: string;
 }
 
-/** A meal (danie/posiłek): a reusable set of existing foods. */
+/** Another meal used as an ingredient of this one ("zupka na rosole"). */
+export interface MealSubMeal {
+  meal_id: number;
+  name: string;
+  emoji: string;
+  /** Direct products of that meal (its own sub-meals add more). */
+  food_count: number;
+}
+
+/** A meal (danie/posiłek): a reusable set of existing foods and meals. */
 export interface Meal {
   id: number;
   name: string;
@@ -49,6 +58,12 @@ export interface Meal {
   last_rating: number;
   recent_ratings: number[];
   items: MealItem[];
+  /** Meals used as components, in serving order. */
+  sub_meals: MealSubMeal[];
+  /** Distinct products a single +1 records (whole expanded composition). */
+  expanded_foods: number;
+  /** Component meals a single +1 records (root excluded). */
+  expanded_meals: number;
 }
 
 export interface Stats {
@@ -74,6 +89,9 @@ export interface LogEntry {
   /** Set when the try was recorded as part of eating a meal. */
   meal_log_id: number | null;
   meal_name: string;
+  /** Set when this meal event was itself a component of a bigger serving. */
+  parent_log_id?: number;
+  parent_meal?: string;
 }
 
 /** One try in the account-wide "Ostatnie próby" feed. */
@@ -189,9 +207,9 @@ export const api = {
 
   listMeals: () => request<Meal[]>('/api/meals'),
   getMeal: (id: number) => request<Meal>(`/api/meals/${id}`),
-  createMeal: (data: { name: string; emoji?: string; notes?: string; target?: number; items: number[] }) =>
+  createMeal: (data: { name: string; emoji?: string; notes?: string; target?: number; items: number[]; sub_meals?: number[] }) =>
     request<Meal>('/api/meals', { method: 'POST', body: JSON.stringify(data) }),
-  updateMeal: (id: number, data: { name?: string; emoji?: string; notes?: string; target?: number; items?: number[] }) =>
+  updateMeal: (id: number, data: { name?: string; emoji?: string; notes?: string; target?: number; items?: number[]; sub_meals?: number[] }) =>
     request<Meal>(`/api/meals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteMeal: (id: number) => request<{ ok: boolean }>(`/api/meals/${id}`, { method: 'DELETE' }),
   tryMeal: (id: number, rating: number, note?: string, triedAt?: string) =>
@@ -287,6 +305,39 @@ export function mealIcon(m: Meal): string {
 /** Icon of one ingredient of a meal. */
 export function mealItemIcon(it: MealItem, cats?: Category[]): string {
   return it.emoji || foodEmoji(it.name, it.category, cats);
+}
+
+/** Icon of a meal used as a component. */
+export function subMealIcon(s: MealSubMeal): string {
+  return s.emoji || '🍲';
+}
+
+/**
+ * Meal ids that must not be added as a component of `id`: the meal itself and
+ * every meal that already contains it (transitively) — adding any of them
+ * would close a cycle. The server enforces the same rule, this is just UX.
+ */
+export function forbiddenComponents(meals: Meal[], id: number): Set<number> {
+  const parents = new Map<number, number[]>();
+  for (const m of meals) {
+    for (const s of m.sub_meals) {
+      const list = parents.get(s.meal_id) ?? [];
+      list.push(m.id);
+      parents.set(s.meal_id, list);
+    }
+  }
+  const out = new Set<number>([id]);
+  const stack = [id];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    for (const p of parents.get(cur) ?? []) {
+      if (!out.has(p)) {
+        out.add(p);
+        stack.push(p);
+      }
+    }
+  }
+  return out;
 }
 
 /** Emoji offered as one-tap picks when setting a food/category icon. */

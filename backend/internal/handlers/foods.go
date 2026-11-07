@@ -76,6 +76,11 @@ type LogEntry struct {
 	// Set when this try was recorded as part of eating a meal.
 	MealLogID *int   `json:"meal_log_id"`
 	MealName  string `json:"meal_name"`
+
+	// Set when this meal event was itself a component of a bigger serving
+	// ("rosół" eaten as part of "zupka").
+	ParentLogID *int   `json:"parent_log_id,omitempty"`
+	ParentMeal  string `json:"parent_meal,omitempty"`
 }
 
 // RecentLogEntry is one try in the account-wide feed: the food is denormalised
@@ -105,7 +110,6 @@ func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 	f := &Food{}
 	var recent pq.Int64Array
 	var categories pq.StringArray
-	var mealNames pq.StringArray
 	err := conn.QueryRow(
 		`SELECT f.id, f.name, f.emoji, f.category, f.tries, f.target, f.notes, f.created_at, f.updated_at, f.last_tried_at,
 		        COALESCE((SELECT COUNT(*)::int FROM rz_food_log l WHERE l.food_id = f.id), 0),
@@ -120,26 +124,65 @@ func (h *FoodHandler) fetchFood(conn *sql.DB, id, userID int) (*Food, error) {
 		            WHERE fc.food_id = f.id
 		            ORDER BY (c.name <> f.category), c.sort_order, c.name
 		        )), ARRAY[]::text[]),
-		        COALESCE((SELECT ARRAY(
-		            SELECT m.name FROM rz_meal_items mi
-		            JOIN rz_meals m ON m.id = mi.meal_id
-		            WHERE mi.food_id = f.id
-		            ORDER BY m.name
-		        )), ARRAY[]::text[]),
 		        COALESCE((SELECT l.meal_name FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), '')
 		 FROM rz_foods f
 		 WHERE f.id = $1 AND f.user_id = $2`,
 		id, userID,
 	).Scan(&f.ID, &f.Name, &f.Emoji, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories, &mealNames, &f.LastMealName)
+		&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories, &f.LastMealName)
 	if err != nil {
 		log.Printf("[FOODS] fetch id=%d: %v", id, err)
 		return nil, err
 	}
 	f.RecentRatings = intSlice(recent)
 	f.Categories = categorySlice(categories)
-	f.MealNames = categorySlice(mealNames)
+	f.MealNames = []string{}
+	names, err := mealNamesByFood(conn, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if list := names[f.ID]; len(list) > 0 {
+		f.MealNames = list
+	}
 	return f, nil
+}
+
+// mealNamesByFood maps each food to the meals it belongs to, including meals
+// that contain it through a component meal ("marchewka" → "zupka", via
+// "rosół"). foodID = 0 means every food of the account.
+func mealNamesByFood(conn *sql.DB, uid, foodID int) (map[int][]string, error) {
+	rows, err := conn.Query(
+		`WITH RECURSIVE up(food_id, id, depth) AS (
+		     SELECT mi.food_id, mi.meal_id, 0
+		     FROM rz_meal_items mi JOIN rz_foods f ON f.id = mi.food_id
+		     WHERE f.user_id = $1 AND ($2 = 0 OR mi.food_id = $2)
+		     UNION
+		     SELECT up.food_id, s.meal_id, up.depth + 1
+		     FROM rz_meal_submeals s JOIN up ON s.sub_meal_id = up.id
+		     WHERE up.depth < $3
+		 )
+		 SELECT up.food_id, m.name
+		 FROM up JOIN rz_meals m ON m.id = up.id
+		 WHERE m.user_id = $1
+		 GROUP BY up.food_id, m.name
+		 ORDER BY up.food_id, m.name`,
+		uid, foodID, mealWalkDepth,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[int][]string{}
+	for rows.Next() {
+		var fid int
+		var name string
+		if err := rows.Scan(&fid, &name); err != nil {
+			return nil, err
+		}
+		out[fid] = append(out[fid], name)
+	}
+	return out, rows.Err()
 }
 
 // List returns all foods for the authenticated user.
@@ -160,12 +203,6 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		            WHERE fc.food_id = f.id
 		            ORDER BY (c.name <> f.category), c.sort_order, c.name
 		        )), ARRAY[]::text[]),
-		        COALESCE((SELECT ARRAY(
-		            SELECT m.name FROM rz_meal_items mi
-		            JOIN rz_meals m ON m.id = mi.meal_id
-		            WHERE mi.food_id = f.id
-		            ORDER BY m.name
-		        )), ARRAY[]::text[]),
 		        COALESCE((SELECT l.meal_name FROM rz_food_log l WHERE l.food_id = f.id ORDER BY l.tried_at DESC, l.id DESC LIMIT 1), '')
 		 FROM rz_foods f
 		 WHERE f.user_id = $1
@@ -184,17 +221,29 @@ func (h *FoodHandler) List(w http.ResponseWriter, r *http.Request) {
 		var f Food
 		var recent pq.Int64Array
 		var categories pq.StringArray
-		var mealNames pq.StringArray
 		if err := rows.Scan(&f.ID, &f.Name, &f.Emoji, &f.Category, &f.Tries, &f.Target, &f.Notes, &f.CreatedAt, &f.UpdatedAt, &f.LastTriedAt,
-			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories, &mealNames, &f.LastMealName); err != nil {
+			&f.RatingCount, &f.RatingAvg, &f.RatingSum, &f.LastNote, &f.LastRating, &recent, &categories, &f.LastMealName); err != nil {
 			log.Printf("[FOODS] scan: %v", err)
 			continue
 		}
 		f.RecentRatings = intSlice(recent)
 		f.Categories = categorySlice(categories)
-		f.MealNames = categorySlice(mealNames)
+		f.MealNames = []string{}
 		foods = append(foods, f)
 	}
+
+	// One extra query for "which meals contain this food" (directly or via a
+	// component meal) instead of a correlated subquery per row.
+	if names, err := mealNamesByFood(h.DB, uid, 0); err == nil {
+		for i := range foods {
+			if list := names[foods[i].ID]; len(list) > 0 {
+				foods[i].MealNames = list
+			}
+		}
+	} else {
+		log.Printf("[FOODS] meal names: %v", err)
+	}
+
 	writeJSON(w, http.StatusOK, foods)
 }
 

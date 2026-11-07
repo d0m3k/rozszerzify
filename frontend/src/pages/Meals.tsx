@@ -1,4 +1,4 @@
-import { Category, Meal, mealIcon, mealItemIcon, progressPct, ratingMeta } from '../api';
+import { Category, Meal, mealIcon, mealItemIcon, progressPct, ratingMeta, subMealIcon } from '../api';
 
 interface Props {
   meals: Meal[];
@@ -56,6 +56,12 @@ export function MealsPage({ meals, categories, onOpenDetail, onPlus, onNew }: Pr
                     {mealItemIcon(it, categories)} {it.name}
                   </span>
                 ))}
+                {m.sub_meals.map((sm) => (
+                  <span class="meal-item-chip meal-item-sub" key={sm.meal_id}>
+                    {subMealIcon(sm)} {sm.name}
+                    <span class="meal-item-sub-tag">danie</span>
+                  </span>
+                ))}
               </div>
               <div class="food-progress">
                 <div class="progress-track">
@@ -69,7 +75,11 @@ export function MealsPage({ meals, categories, onOpenDetail, onPlus, onNew }: Pr
                 </span>
               </div>
               <div class="meal-count-line">
-                {m.items.length} {m.items.length === 1 ? 'produkt' : m.items.length < 5 ? 'produkty' : 'produktów'} w daniu
+                {m.items.length} {m.items.length === 1 ? 'produkt' : m.items.length < 5 ? 'produkty' : 'produktów'}
+                {m.sub_meals.length > 0 && <>
+                  {' '}+ {m.sub_meals.length} {m.sub_meals.length === 1 ? 'danie' : 'dania'}
+                </>}{' '}
+                w daniu · 1 próba = {m.expanded_foods} {m.expanded_foods === 1 ? 'produkt' : 'produktów'}
                 {m.last_note ? ` · 📝 ${m.last_note}` : ''}
               </div>
             </div>

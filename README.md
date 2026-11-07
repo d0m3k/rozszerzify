@@ -24,6 +24,12 @@ co mu najbardziej podchodzi.
   **i każdego produktu w składzie**, a historia produktu oznacza próbę jako
   „🍲 próba z dania «…»”. Skład dania widać na liście dań, w szczegółach oraz
   na karcie produktu („składnik dań: …”)
+- **🍲 Dania z dań** — danie może zawierać inne danie („zupka na rosole”):
+  zjedzenie zupki daje +1 zupce, rosołowi i wszystkim produktom obu dań.
+  Ten sam produkt w kilku miejscach składu liczy się **raz** (jedna próba na
+  zdarzenie). Cykle są zablokowane (danie nie może zawierać samo siebie, ani
+  pośrednio), a limity pilnują rozdmuchiwania: głębokość 3 poziomy, max 20
+  bezpośrednich składników, 40 produktów i 24 dań po rozwinięciu
 - **🏆 Ranking smaków** — średnia ocen, medale dla top 3
 - **Historia prób** — kiedy, z jaką notatką i oceną
 - **🕒 Ostatnie próby** — jeden wspólny dziennik wszystkich produktów:
@@ -127,12 +133,12 @@ Backend słucha na `127.0.0.1:8081` (8080 zajmuje rybaspotting).
 | GET | `/api/foods/{id}/log` | historia prób (każda próba ma `meal_log_id`/`meal_name`, gdy pochodzi z dania) |
 | GET | `/api/log` | wspólny dziennik prób wszystkich produktów (`?limit=` 1–200, domyślnie 50; `?offset=`) |
 | PUT | `/api/foods/{id}/log/{logId}` | popraw zapisaną próbę (`{rating?, note?, tried_at?}`; bez powiadomień) |
-| GET | `/api/meals` | lista dań z pełnym składem (`items[]`) i agregatami ocen |
-| POST | `/api/meals` | nowe danie (`{name, emoji?, notes?, target?, items: [food_id, …]}`) |
-| GET/PUT/DELETE | `/api/meals/{id}` | szczegóły / edycja (te same pola; `items` zastępuje skład) / usunięcie |
-| POST | `/api/meals/{id}/try` | `{rating: 1–4, note?, tried_at?}` — zjedzone danie: +1 dla dania i każdego produktu |
-| POST | `/api/meals/{id}/untry` | cofnij ostatnie zjedzone danie (razem z próbami produktów) |
-| GET | `/api/meals/{id}/log` | historia zjedzonych dań |
-| PUT/DELETE | `/api/meals/{id}/log/{logId}` | popraw / usuń zdarzenie dania (zmiany i usunięcie odbijają się na próbach produktów) |
+| GET | `/api/meals` | lista dań z pełnym składem (`items[]`, `sub_meals[]`) i agregatami ocen |
+| POST | `/api/meals` | nowe danie (`{name, emoji?, notes?, target?, items: [food_id, …], sub_meals?: [meal_id, …]}`) |
+| GET/PUT/DELETE | `/api/meals/{id}` | szczegóły / edycja (te same pola; `items` i/lub `sub_meals` zastępują skład) / usunięcie |
+| POST | `/api/meals/{id}/try` | `{rating: 1–4, note?, tried_at?}` — zjedzone danie: +1 dla dania, dań-składników i każdego (unikalnego) produktu |
+| POST | `/api/meals/{id}/untry` | cofnij ostatnie samodzielne zjedzone danie (razem z próbami składników) |
+| GET | `/api/meals/{id}/log` | historia zjedzonych dań (`parent_meal` przy próbie będącej częścią większego posiłku) |
+| PUT/DELETE | `/api/meals/{id}/log/{logId}` | popraw / usuń zdarzenie dania (usunięcie odbija się na próbach produktów i dań-składników; próby-składniki trzeba usunąć razem z całym posiłkiem) |
 | GET | `/api/ranking` | produkty wg średniej oceny |
 | GET | `/api/stats` | liczniki: dzień od startu, produkty, cele |

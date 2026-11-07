@@ -3,6 +3,8 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -20,11 +22,37 @@ type MealHandler struct {
 	DB *sql.DB
 }
 
+// Meal graphs are small by design: a danie can contain another danie ("zupka
+// na rosole"), but never itself, directly or through other meals. These caps
+// also stop accidental fan-out (one bowl = 200 tries). They are enforced on
+// every composition edit and re-checked for the whole account, so a parent
+// can't outgrow the limits just because one of its children grew.
+const (
+	maxMealDepth      = 3  // root + up to 3 nesting levels
+	maxMealComponents = 20 // direct children: foods + sub-meals
+	maxMealFoods      = 40 // distinct products after full expansion
+	maxMealSubMeals   = 24 // distinct component meals after full expansion
+	mealWalkDepth     = 8  // defensive stop for traversal (corrupt data)
+)
+
+// compositionError marks a user-fixable problem with a meal's composition.
+type compositionError struct{ msg string }
+
+func (e compositionError) Error() string { return e.msg }
+
 type MealItem struct {
 	FoodID   int    `json:"food_id"`
 	Name     string `json:"name"`
 	Emoji    string `json:"emoji"`
 	Category string `json:"category"`
+}
+
+// SubMeal is another meal used as a component of this one.
+type SubMeal struct {
+	MealID    int    `json:"meal_id"`
+	Name      string `json:"name"`
+	Emoji     string `json:"emoji"`
+	FoodCount int    `json:"food_count"`
 }
 
 type Meal struct {
@@ -48,22 +76,31 @@ type Meal struct {
 
 	// The foods this meal consists of, in serving order.
 	Items []MealItem `json:"items"`
+
+	// Other meals used as components ("zupka na rosole" → rosół), in order.
+	SubMeals []SubMeal `json:"sub_meals"`
+
+	// Size of the fully expanded composition: what one +1 really records.
+	ExpandedFoods int `json:"expanded_foods"`
+	ExpandedMeals int `json:"expanded_meals"`
 }
 
 type mealRequest struct {
-	Name   string `json:"name"`
-	Emoji  string `json:"emoji"`
-	Notes  string `json:"notes"`
-	Target int    `json:"target"`
-	Items  []int  `json:"items"`
+	Name     string `json:"name"`
+	Emoji    string `json:"emoji"`
+	Notes    string `json:"notes"`
+	Target   int    `json:"target"`
+	Items    []int  `json:"items"`
+	SubMeals []int  `json:"sub_meals"`
 }
 
 type updateMealRequest struct {
-	Name   *string `json:"name"`
-	Emoji  *string `json:"emoji"`
-	Notes  *string `json:"notes"`
-	Target *int    `json:"target"`
-	Items  *[]int  `json:"items"`
+	Name     *string `json:"name"`
+	Emoji    *string `json:"emoji"`
+	Notes    *string `json:"notes"`
+	Target   *int    `json:"target"`
+	Items    *[]int  `json:"items"`
+	SubMeals *[]int  `json:"sub_meals"`
 }
 
 // fetchMeal loads one meal and its composition for the given user.
@@ -108,7 +145,61 @@ func (h *MealHandler) fetchMeal(conn *sql.DB, id, userID int) (*Meal, error) {
 		}
 		m.Items = append(m.Items, it)
 	}
-	return m, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	m.SubMeals = []SubMeal{}
+	subRows, err := conn.Query(
+		`SELECT s.sub_meal_id, sm.name, sm.emoji,
+		        (SELECT COUNT(*)::int FROM rz_meal_items mi WHERE mi.meal_id = sm.id)
+		 FROM rz_meal_submeals s
+		 JOIN rz_meals sm ON sm.id = s.sub_meal_id
+		 WHERE s.meal_id = $1
+		 ORDER BY s.position, sm.name`,
+		id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer subRows.Close()
+	for subRows.Next() {
+		var sm SubMeal
+		if err := subRows.Scan(&sm.MealID, &sm.Name, &sm.Emoji, &sm.FoodCount); err != nil {
+			return nil, err
+		}
+		m.SubMeals = append(m.SubMeals, sm)
+	}
+	if err := subRows.Err(); err != nil {
+		return nil, err
+	}
+
+	m.ExpandedFoods, m.ExpandedMeals, err = mealExpansion(conn, id)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// mealExpansion counts what one try of this meal expands to: distinct products
+// and distinct component meals (the root itself not included). The traversal
+// is path-guarded so it terminates even on corrupt data.
+func mealExpansion(conn *sql.DB, mealID int) (foods, meals int, err error) {
+	err = conn.QueryRow(
+		`WITH RECURSIVE walk(cur_id, depth, path) AS (
+		     SELECT m.id, 0, ARRAY[m.id] FROM rz_meals m WHERE m.id = $1
+		     UNION ALL
+		     SELECT s.sub_meal_id, w.depth + 1, w.path || s.sub_meal_id
+		     FROM walk w
+		     JOIN rz_meal_submeals s ON s.meal_id = w.cur_id
+		     WHERE w.depth < $2 AND NOT (s.sub_meal_id = ANY(w.path))
+		 )
+		 SELECT (SELECT COUNT(DISTINCT mi.food_id)::int
+		         FROM walk w JOIN rz_meal_items mi ON mi.meal_id = w.cur_id),
+		        (SELECT COUNT(*)::int FROM walk WHERE depth > 0)`,
+		mealID, mealWalkDepth,
+	).Scan(&foods, &meals)
+	return foods, meals, err
 }
 
 // List returns all meals (with their composition) for the authenticated user.
@@ -190,31 +281,211 @@ func normalizeMealFields(name, emoji, notes *string, target *int) (string, strin
 	return n, normalizeEmoji(emoji), nt, t, ""
 }
 
-// setMealItems replaces the composition of a meal. Every food must belong to
-// the user. Reports false when one of the ids is not the user's food.
-func setMealItems(tx *sql.Tx, uid, mealID int, ids []int) (bool, error) {
-	var count int
-	if err := tx.QueryRow(
-		`SELECT COUNT(*)::int FROM rz_foods WHERE user_id = $1 AND id = ANY($2)`,
-		uid, pq.Array(ids),
-	).Scan(&count); err != nil {
-		return false, err
+// lockMealGraph serializes composition writes per account. Without it two
+// concurrent requests could each pass the "does it already contain me?"
+// check and together create a cycle.
+func lockMealGraph(tx *sql.Tx, uid int) error {
+	_, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, int64(uid))
+	return err
+}
+
+// mealComponents loads the current composition of a meal (for partial updates).
+func mealComponents(tx *sql.Tx, mealID int) (foodIDs, subMealIDs []int, err error) {
+	rows, err := tx.Query(`SELECT food_id FROM rz_meal_items WHERE meal_id = $1 ORDER BY position, food_id`, mealID)
+	if err != nil {
+		return nil, nil, err
 	}
-	if count != len(ids) {
-		return false, nil
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		foodIDs = append(foodIDs, id)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	rows, err = tx.Query(`SELECT sub_meal_id FROM rz_meal_submeals WHERE meal_id = $1 ORDER BY position, sub_meal_id`, mealID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, nil, err
+		}
+		subMealIDs = append(subMealIDs, id)
+	}
+	return foodIDs, subMealIDs, rows.Err()
+}
+
+// setMealComposition replaces the whole composition of a meal and validates
+// it: ownership, self-reference, cycles, depth and fan-out. The caller owns
+// the transaction and must hold lockMealGraph.
+func setMealComposition(tx *sql.Tx, uid, mealID int, foods, subMeals []int) error {
+	if len(foods)+len(subMeals) == 0 {
+		return compositionError{"a meal needs at least one food or meal"}
+	}
+	if len(foods)+len(subMeals) > maxMealComponents {
+		return compositionError{fmt.Sprintf("too many components (max %d)", maxMealComponents)}
+	}
+
+	if len(foods) > 0 {
+		var count int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*)::int FROM rz_foods WHERE user_id = $1 AND id = ANY($2)`,
+			uid, pq.Array(foods),
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count != len(foods) {
+			return compositionError{"items must be existing foods"}
+		}
+	}
+
+	if len(subMeals) > 0 {
+		var count int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*)::int FROM rz_meals WHERE user_id = $1 AND id = ANY($2)`,
+			uid, pq.Array(subMeals),
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count != len(subMeals) {
+			return compositionError{"sub-meals must be meals of this account"}
+		}
+	}
+
+	// Adding X to this meal is only legal when X does not already contain it
+	// (directly or transitively); otherwise we would close a loop.
+	for _, subID := range subMeals {
+		if subID == mealID {
+			return compositionError{"a meal cannot contain itself"}
+		}
+		var name string
+		err := tx.QueryRow(
+			`WITH RECURSIVE down(id, depth, path) AS (
+			     SELECT $1::int, 0, ARRAY[$1::int]
+			     UNION ALL
+			     SELECT s.sub_meal_id, d.depth + 1, d.path || s.sub_meal_id
+			     FROM down d JOIN rz_meal_submeals s ON s.meal_id = d.id
+			     WHERE d.depth < $2 AND NOT (s.sub_meal_id = ANY(d.path))
+			 )
+			 SELECT m.name FROM down d JOIN rz_meals m ON m.id = d.id
+			 WHERE d.id = $3 AND d.depth > 0 LIMIT 1`,
+			subID, mealWalkDepth, mealID,
+		).Scan(&name)
+		if err == nil {
+			return compositionError{fmt.Sprintf("%q already contains this meal — that would create a cycle", name)}
+		}
+		if err != sql.ErrNoRows {
+			return err
+		}
+	}
+
 	if _, err := tx.Exec(`DELETE FROM rz_meal_items WHERE meal_id = $1`, mealID); err != nil {
-		return false, err
+		return err
 	}
-	for i, foodID := range ids {
+	if _, err := tx.Exec(`DELETE FROM rz_meal_submeals WHERE meal_id = $1`, mealID); err != nil {
+		return err
+	}
+	for i, foodID := range foods {
 		if _, err := tx.Exec(
 			`INSERT INTO rz_meal_items (meal_id, food_id, position) VALUES ($1, $2, $3)`,
 			mealID, foodID, i,
 		); err != nil {
-			return false, err
+			return err
 		}
 	}
-	return true, nil
+	for i, subID := range subMeals {
+		if _, err := tx.Exec(
+			`INSERT INTO rz_meal_submeals (meal_id, sub_meal_id, position) VALUES ($1, $2, $3)`,
+			mealID, subID, i,
+		); err != nil {
+			return err
+		}
+	}
+
+	return validateMealGraph(tx, uid)
+}
+
+// validateMealGraph re-checks the whole account DAG after an edit. This catches
+// limits violated indirectly: meal B is fine on its own, but growing it can
+// push its parent over the depth or fan-out cap.
+func validateMealGraph(tx *sql.Tx, uid int) error {
+	var foreign int
+	if err := tx.QueryRow(
+		`SELECT COUNT(*)::int FROM rz_meal_submeals s
+		 JOIN rz_meals p ON p.id = s.meal_id
+		 JOIN rz_meals c ON c.id = s.sub_meal_id
+		 WHERE (p.user_id = $1 OR c.user_id = $1) AND p.user_id <> c.user_id`,
+		uid,
+	).Scan(&foreign); err != nil {
+		return err
+	}
+	if foreign > 0 {
+		return compositionError{"a meal can only contain meals from the same account"}
+	}
+
+	walk := `WITH RECURSIVE walk(root_id, cur_id, depth, path) AS (
+	             SELECT m.id, m.id, 0, ARRAY[m.id] FROM rz_meals m WHERE m.user_id = $1
+	             UNION ALL
+	             SELECT w.root_id, s.sub_meal_id, w.depth + 1, w.path || s.sub_meal_id
+	             FROM walk w JOIN rz_meal_submeals s ON s.meal_id = w.cur_id
+	             WHERE w.depth < $2 AND NOT (s.sub_meal_id = ANY(w.path))
+	         )`
+
+	var cycles int
+	if err := tx.QueryRow(
+		walk+` SELECT COUNT(*)::int
+		 FROM rz_meal_submeals s JOIN walk w ON w.cur_id = s.meal_id
+		 WHERE s.sub_meal_id = ANY(w.path)`,
+		uid, mealWalkDepth,
+	).Scan(&cycles); err != nil {
+		return err
+	}
+	if cycles > 0 {
+		return compositionError{"composition would create a cycle"}
+	}
+
+	rows, err := tx.Query(
+		walk+` SELECT w.root_id, m.name,
+		        MAX(w.depth)::int,
+		        (SELECT COUNT(*)::int FROM walk x WHERE x.root_id = w.root_id AND x.depth > 0),
+		        (SELECT COUNT(DISTINCT mi.food_id)::int FROM walk x
+		         JOIN rz_meal_items mi ON mi.meal_id = x.cur_id WHERE x.root_id = w.root_id)
+		 FROM walk w JOIN rz_meals m ON m.id = w.root_id
+		 GROUP BY w.root_id, m.name`,
+		uid, mealWalkDepth,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			rootID, depth, meals, foods int
+			name                        string
+		)
+		if err := rows.Scan(&rootID, &name, &depth, &meals, &foods); err != nil {
+			return err
+		}
+		if depth > maxMealDepth {
+			return compositionError{fmt.Sprintf("%q would nest meals too deeply (max %d levels)", name, maxMealDepth)}
+		}
+		if meals > maxMealSubMeals {
+			return compositionError{fmt.Sprintf("%q would contain too many meals (max %d)", name, maxMealSubMeals)}
+		}
+		if foods > maxMealFoods {
+			return compositionError{fmt.Sprintf("%q would contain too many foods (max %d)", name, maxMealFoods)}
+		}
+	}
+	return rows.Err()
 }
 
 // mealItems normalizes a client-supplied composition (dedupe, keep order).
@@ -244,8 +515,9 @@ func (h *MealHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := mealItems(req.Items)
-	if len(items) == 0 {
-		writeErr(w, http.StatusBadRequest, "a meal needs at least one food")
+	subMeals := mealItems(req.SubMeals)
+	if len(items)+len(subMeals) == 0 {
+		writeErr(w, http.StatusBadRequest, "a meal needs at least one food or meal")
 		return
 	}
 
@@ -256,6 +528,11 @@ func (h *MealHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	if err := lockMealGraph(tx, uid); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 
 	var id int
 	err = tx.QueryRow(
@@ -273,12 +550,8 @@ func (h *MealHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ok, err := setMealItems(tx, uid, id, items); err != nil {
-		log.Printf("[MEALS] create items: %v", err)
-		writeErr(w, http.StatusInternalServerError, "internal error")
-		return
-	} else if !ok {
-		writeErr(w, http.StatusBadRequest, "items must be existing foods")
+	if err := setMealComposition(tx, uid, id, items, subMeals); err != nil {
+		writeCompositionErr(w, err, "create composition")
 		return
 	}
 
@@ -350,16 +623,16 @@ func (h *MealHandler) Update(w http.ResponseWriter, r *http.Request) {
 		sets = append(sets, "target = "+arg(target))
 	}
 
-	var items []int
+	var items, subMeals []int
+	compositionChanged := req.Items != nil || req.SubMeals != nil
 	if req.Items != nil {
 		items = mealItems(*req.Items)
-		if len(items) == 0 {
-			writeErr(w, http.StatusBadRequest, "a meal needs at least one food")
-			return
-		}
+	}
+	if req.SubMeals != nil {
+		subMeals = mealItems(*req.SubMeals)
 	}
 
-	if len(sets) == 0 && req.Items == nil {
+	if len(sets) == 0 && !compositionChanged {
 		writeErr(w, http.StatusBadRequest, "nothing to update")
 		return
 	}
@@ -373,6 +646,11 @@ func (h *MealHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	if err := lockMealGraph(tx, uid); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 
 	if len(sets) > 0 {
 		args = append(args, id, uid)
@@ -396,15 +674,23 @@ func (h *MealHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.Items != nil {
-		ok, err := setMealItems(tx, uid, id, items)
-		if err != nil {
-			log.Printf("[MEALS] update items: %v", err)
-			writeErr(w, http.StatusInternalServerError, "internal error")
-			return
+	if compositionChanged {
+		// Partial updates keep the half that was not sent.
+		if req.Items == nil || req.SubMeals == nil {
+			curFoods, curSubs, err := mealComponents(tx, id)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if req.Items == nil {
+				items = curFoods
+			}
+			if req.SubMeals == nil {
+				subMeals = curSubs
+			}
 		}
-		if !ok {
-			writeErr(w, http.StatusBadRequest, "items must be existing foods")
+		if err := setMealComposition(tx, uid, id, items, subMeals); err != nil {
+			writeCompositionErr(w, err, "update composition")
 			return
 		}
 	}
@@ -424,6 +710,17 @@ func (h *MealHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, m)
+}
+
+// writeCompositionErr maps composition validation failures to 400s.
+func writeCompositionErr(w http.ResponseWriter, err error, what string) {
+	var ce compositionError
+	if errors.As(err, &ce) {
+		writeErr(w, http.StatusBadRequest, ce.msg)
+		return
+	}
+	log.Printf("[MEALS] %s: %v", what, err)
+	writeErr(w, http.StatusInternalServerError, "internal error")
 }
 
 // parseMealTry validates the rating, note and timestamp shared by try/log edits.
@@ -494,6 +791,11 @@ func (h *MealHandler) Try(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	if err := lockMealGraph(tx, uid); err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	ok, err := mealExists(tx, id, uid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -510,36 +812,88 @@ func (h *MealHandler) Try(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One timestamp for the whole serving: the parent event, the component
+	// meal events and every product try must line up.
+	ts := time.Now()
+	if triedAt != nil {
+		ts = *triedAt
+	}
+
 	var mealLogID int
 	if err := tx.QueryRow(
 		`INSERT INTO rz_meal_log (meal_id, user_id, note, rating, tried_at)
-		 VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW())) RETURNING id`,
-		id, uid, note, rating, triedAt,
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		id, uid, note, rating, ts,
 	).Scan(&mealLogID); err != nil {
 		log.Printf("[MEALS] try insert log: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	// One try per ingredient, marked with the meal it came from.
+	// Meals used as components also count as tried, in the same serving. The
+	// recursion is path-guarded (corrupt data can't loop) and DISTINCT: a meal
+	// reachable through two paths still gets exactly one try.
 	if _, err := tx.Exec(
-		`INSERT INTO rz_food_log (food_id, user_id, note, rating, tried_at, meal_log_id, meal_name)
-		 SELECT mi.food_id, $2, $3, $4, COALESCE($5::timestamptz, NOW()), $1, $6
-		 FROM rz_meal_items mi
-		 WHERE mi.meal_id = $7`,
-		mealLogID, uid, note, rating, triedAt, mealName, id,
+		`WITH RECURSIVE walk(cur_id, depth, path) AS (
+		     SELECT m.id, 0, ARRAY[m.id] FROM rz_meals m WHERE m.id = $3 AND m.user_id = $2
+		     UNION ALL
+		     SELECT s.sub_meal_id, w.depth + 1, w.path || s.sub_meal_id
+		     FROM walk w
+		     JOIN rz_meal_submeals s ON s.meal_id = w.cur_id
+		     JOIN rz_meals m ON m.id = s.sub_meal_id AND m.user_id = $2
+		     WHERE w.depth < $4 AND NOT (s.sub_meal_id = ANY(w.path))
+		 )
+		 INSERT INTO rz_meal_log (meal_id, user_id, note, rating, tried_at, parent_log_id)
+		 SELECT DISTINCT cur_id, $2::int, $5::text, $6::int, $7::timestamptz, $1::int FROM walk WHERE depth > 0`,
+		mealLogID, uid, id, mealWalkDepth, note, rating, ts,
+	); err != nil {
+		log.Printf("[MEALS] try insert component logs: %v", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// One try per distinct product across the whole expanded composition — a
+	// product that is both a direct item and an ingredient of a component meal
+	// is recorded once. All rows stay attached to the root event, so undo and
+	// history edits keep working exactly as before.
+	if _, err := tx.Exec(
+		`WITH RECURSIVE walk(cur_id, depth, path) AS (
+		     SELECT m.id, 0, ARRAY[m.id] FROM rz_meals m WHERE m.id = $3 AND m.user_id = $2
+		     UNION ALL
+		     SELECT s.sub_meal_id, w.depth + 1, w.path || s.sub_meal_id
+		     FROM walk w
+		     JOIN rz_meal_submeals s ON s.meal_id = w.cur_id
+		     JOIN rz_meals m ON m.id = s.sub_meal_id AND m.user_id = $2
+		     WHERE w.depth < $4 AND NOT (s.sub_meal_id = ANY(w.path))
+		 )
+		 INSERT INTO rz_food_log (food_id, user_id, note, rating, tried_at, meal_log_id, meal_name)
+		 SELECT DISTINCT mi.food_id, $2::int, $5::text, $6::int, $7::timestamptz, $1::int, $8::text
+		 FROM walk w JOIN rz_meal_items mi ON mi.meal_id = w.cur_id`,
+		mealLogID, uid, id, mealWalkDepth, note, rating, ts, mealName,
 	); err != nil {
 		log.Printf("[MEALS] try insert food logs: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+
 	if _, err := tx.Exec(
-		`UPDATE rz_foods f
+		`WITH RECURSIVE walk(cur_id, depth, path) AS (
+		     SELECT m.id, 0, ARRAY[m.id] FROM rz_meals m WHERE m.id = $1 AND m.user_id = $2
+		     UNION ALL
+		     SELECT s.sub_meal_id, w.depth + 1, w.path || s.sub_meal_id
+		     FROM walk w
+		     JOIN rz_meal_submeals s ON s.meal_id = w.cur_id
+		     JOIN rz_meals m ON m.id = s.sub_meal_id AND m.user_id = $2
+		     WHERE w.depth < $3 AND NOT (s.sub_meal_id = ANY(w.path))
+		 )
+		 UPDATE rz_foods f
 		 SET tries = f.tries + 1,
-		     last_tried_at = GREATEST(f.last_tried_at, COALESCE($3::timestamptz, NOW())),
+		     last_tried_at = GREATEST(f.last_tried_at, $4::timestamptz),
 		     updated_at = NOW()
-		 WHERE f.user_id = $2 AND f.id IN (SELECT food_id FROM rz_meal_items WHERE meal_id = $1)`,
-		id, uid, triedAt,
+		 WHERE f.user_id = $2
+		   AND f.id IN (SELECT DISTINCT mi.food_id FROM walk w
+		                JOIN rz_meal_items mi ON mi.meal_id = w.cur_id)`,
+		id, uid, mealWalkDepth, ts,
 	); err != nil {
 		log.Printf("[MEALS] try bump foods: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
@@ -547,13 +901,23 @@ func (h *MealHandler) Try(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := tx.Exec(
-		`UPDATE rz_meals
-		 SET tries = tries + 1,
-		     last_tried_at = GREATEST(last_tried_at, COALESCE($3::timestamptz, NOW())),
+		`WITH RECURSIVE walk(cur_id, depth, path) AS (
+		     SELECT m.id, 0, ARRAY[m.id] FROM rz_meals m WHERE m.id = $1 AND m.user_id = $2
+		     UNION ALL
+		     SELECT s.sub_meal_id, w.depth + 1, w.path || s.sub_meal_id
+		     FROM walk w
+		     JOIN rz_meal_submeals s ON s.meal_id = w.cur_id
+		     JOIN rz_meals m ON m.id = s.sub_meal_id AND m.user_id = $2
+		     WHERE w.depth < $3 AND NOT (s.sub_meal_id = ANY(w.path))
+		 )
+		 UPDATE rz_meals m
+		 SET tries = m.tries + 1,
+		     last_tried_at = GREATEST(m.last_tried_at, $4::timestamptz),
 		     updated_at = NOW()
-		 WHERE id = $1 AND user_id = $2`,
-		id, uid, triedAt,
+		 WHERE m.user_id = $2 AND m.id IN (SELECT DISTINCT cur_id FROM walk)`,
+		id, uid, mealWalkDepth, ts,
 	); err != nil {
+		log.Printf("[MEALS] try bump meals: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -571,10 +935,45 @@ func (h *MealHandler) Try(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-// deleteMealEvent removes one recorded meal event plus the ingredient tries it
-// generated, then fixes both counters/timestamps. Caller owns the transaction.
-func deleteMealEvent(tx *sql.Tx, uid, mealID, logID int) error {
+// deleteMealEvent removes one recorded meal event, every component-meal try it
+// created and all the product tries that came from it, then fixes the
+// counters/timestamps. Caller owns the transaction.
+func deleteMealEvent(tx *sql.Tx, uid, logID int) error {
+	var mealID int
+	if err := tx.QueryRow(
+		`SELECT l.meal_id FROM rz_meal_log l
+		 JOIN rz_meals m ON m.id = l.meal_id
+		 WHERE l.id = $1 AND m.user_id = $2`,
+		logID, uid,
+	).Scan(&mealID); err != nil {
+		return err
+	}
+
+	// Meals that were only tried because they were components of this event.
+	mealIDs := []int{mealID}
 	rows, err := tx.Query(
+		`SELECT l.meal_id FROM rz_meal_log l
+		 JOIN rz_meals m ON m.id = l.meal_id
+		 WHERE l.parent_log_id = $1 AND m.user_id = $2`,
+		logID, uid,
+	)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		mealIDs = append(mealIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	rows, err = tx.Query(
 		`SELECT DISTINCT food_id FROM rz_food_log WHERE meal_log_id = $1`,
 		logID,
 	)
@@ -598,6 +997,13 @@ func deleteMealEvent(tx *sql.Tx, uid, mealID, logID int) error {
 	if _, err := tx.Exec(`DELETE FROM rz_food_log WHERE meal_log_id = $1`, logID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM rz_meal_log WHERE parent_log_id = $1`, logID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM rz_meal_log WHERE id = $1`, logID); err != nil {
+		return err
+	}
+
 	if len(foodIDs) > 0 {
 		if _, err := tx.Exec(
 			`UPDATE rz_foods f
@@ -611,16 +1017,16 @@ func deleteMealEvent(tx *sql.Tx, uid, mealID, logID int) error {
 		}
 	}
 
-	if _, err := tx.Exec(`DELETE FROM rz_meal_log WHERE id = $1`, logID); err != nil {
-		return err
-	}
+	// Each of these meals got exactly +1 from this event, so -1 is exact even
+	// if the composition changed since; the timestamp is rebuilt from what is
+	// left in their history.
 	if _, err := tx.Exec(
-		`UPDATE rz_meals
-		 SET tries = GREATEST(tries - 1, 0),
-		     last_tried_at = (SELECT MAX(tried_at) FROM rz_meal_log WHERE meal_id = $1),
+		`UPDATE rz_meals m
+		 SET tries = GREATEST(m.tries - 1, 0),
+		     last_tried_at = (SELECT MAX(tried_at) FROM rz_meal_log l WHERE l.meal_id = m.id),
 		     updated_at = NOW()
-		 WHERE id = $1 AND user_id = $2`,
-		mealID, uid,
+		 WHERE m.user_id = $1 AND m.id = ANY($2)`,
+		uid, pq.Array(mealIDs),
 	); err != nil {
 		return err
 	}
@@ -655,7 +1061,9 @@ func (h *MealHandler) Untry(w http.ResponseWriter, r *http.Request) {
 
 	var logID int
 	err = tx.QueryRow(
-		`SELECT id FROM rz_meal_log WHERE meal_id = $1 AND user_id = $2 ORDER BY id DESC LIMIT 1`,
+		`SELECT id FROM rz_meal_log
+		 WHERE meal_id = $1 AND user_id = $2 AND parent_log_id IS NULL
+		 ORDER BY id DESC LIMIT 1`,
 		id, uid,
 	).Scan(&logID)
 	if err != nil && err != sql.ErrNoRows {
@@ -663,7 +1071,7 @@ func (h *MealHandler) Untry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil {
-		if err := deleteMealEvent(tx, uid, id, logID); err != nil {
+		if err := deleteMealEvent(tx, uid, logID); err != nil {
 			log.Printf("[MEALS] untry: %v", err)
 			writeErr(w, http.StatusInternalServerError, "internal error")
 			return
@@ -710,7 +1118,10 @@ func (h *MealHandler) Log(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.DB.Query(
-		`SELECT l.id, l.note, l.rating, l.tried_at
+		`SELECT l.id, l.note, l.rating, l.tried_at, l.parent_log_id,
+		        COALESCE((SELECT pm.name FROM rz_meal_log pl
+		                  JOIN rz_meals pm ON pm.id = pl.meal_id
+		                  WHERE pl.id = l.parent_log_id), '')
 		 FROM rz_meal_log l
 		 JOIN rz_meals m ON m.id = l.meal_id
 		 WHERE l.meal_id = $1 AND m.user_id = $2
@@ -727,7 +1138,7 @@ func (h *MealHandler) Log(w http.ResponseWriter, r *http.Request) {
 	entries := []LogEntry{}
 	for rows.Next() {
 		var e LogEntry
-		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Note, &e.Rating, &e.TriedAt, &e.ParentLogID, &e.ParentMeal); err != nil {
 			continue
 		}
 		entries = append(entries, e)
@@ -817,12 +1228,13 @@ func (h *MealHandler) UpdateLog(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	var mealIDOfEntry int
+	var parentLogID *int
 	err = tx.QueryRow(
-		`SELECT l.meal_id FROM rz_meal_log l
+		`SELECT l.meal_id, l.parent_log_id FROM rz_meal_log l
 		 JOIN rz_meals m ON m.id = l.meal_id
 		 WHERE l.id = $1 AND m.user_id = $2`,
 		logID, uid,
-	).Scan(&mealIDOfEntry)
+	).Scan(&mealIDOfEntry, &parentLogID)
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "entry not found")
 		return
@@ -845,43 +1257,57 @@ func (h *MealHandler) UpdateLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mirror onto the ingredient tries of this event.
-	mirror := []string{}
-	margs := []interface{}{}
-	marg := func(v interface{}) string {
-		margs = append(margs, v)
-		return "$" + strconv.Itoa(len(margs))
-	}
-	if req.Rating != nil {
-		mirror = append(mirror, "rating = "+marg(*req.Rating))
-	}
-	if req.Note != nil {
-		mirror = append(mirror, "note = "+marg(strings.TrimSpace(*req.Note)))
-	}
-	if triedAt != nil {
-		mirror = append(mirror, "tried_at = "+marg(*triedAt))
-	}
-	margs = append(margs, logID)
-	if _, err := tx.Exec(
-		"UPDATE rz_food_log SET "+strings.Join(mirror, ", ")+" WHERE meal_log_id = $"+strconv.Itoa(len(margs)),
-		margs...,
-	); err != nil {
-		log.Printf("[MEALS] update linked food logs: %v", err)
-		writeErr(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	if triedAt != nil {
+	// A component-meal event only exists inside its parent serving: editing it
+	// changes just this entry.
+	if parentLogID == nil {
+		// Mirror onto the product tries of this event.
+		mirror := []string{}
+		margs := []interface{}{}
+		marg := func(v interface{}) string {
+			margs = append(margs, v)
+			return "$" + strconv.Itoa(len(margs))
+		}
+		if req.Rating != nil {
+			mirror = append(mirror, "rating = "+marg(*req.Rating))
+		}
+		if req.Note != nil {
+			mirror = append(mirror, "note = "+marg(strings.TrimSpace(*req.Note)))
+		}
+		if triedAt != nil {
+			mirror = append(mirror, "tried_at = "+marg(*triedAt))
+		}
+		margs = append(margs, logID)
+		where := " WHERE meal_log_id = $" + strconv.Itoa(len(margs))
 		if _, err := tx.Exec(
-			`UPDATE rz_foods f
-			 SET last_tried_at = (SELECT MAX(tried_at) FROM rz_food_log l WHERE l.food_id = f.id),
-			     updated_at = NOW()
-			 WHERE f.user_id = $1
-			   AND f.id IN (SELECT DISTINCT food_id FROM rz_food_log WHERE meal_log_id = $2)`,
-			uid, logID,
+			"UPDATE rz_food_log SET "+strings.Join(mirror, ", ")+where,
+			margs...,
 		); err != nil {
+			log.Printf("[MEALS] update linked food logs: %v", err)
 			writeErr(w, http.StatusInternalServerError, "internal error")
 			return
+		}
+		// ... and onto the component-meal events of this serving.
+		if _, err := tx.Exec(
+			"UPDATE rz_meal_log SET "+strings.Join(mirror, ", ")+" WHERE parent_log_id = $"+strconv.Itoa(len(margs)),
+			margs...,
+		); err != nil {
+			log.Printf("[MEALS] update component meal logs: %v", err)
+			writeErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+
+		if triedAt != nil {
+			if _, err := tx.Exec(
+				`UPDATE rz_foods f
+				 SET last_tried_at = (SELECT MAX(tried_at) FROM rz_food_log l WHERE l.food_id = f.id),
+				     updated_at = NOW()
+				 WHERE f.user_id = $1
+				   AND f.id IN (SELECT DISTINCT food_id FROM rz_food_log WHERE meal_log_id = $2)`,
+				uid, logID,
+			); err != nil {
+				writeErr(w, http.StatusInternalServerError, "internal error")
+				return
+			}
 		}
 	}
 
@@ -921,12 +1347,18 @@ func (h *MealHandler) DeleteLog(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	var mealIDOfEntry int
+	var parentLogID *int
+	var parentMealName string
 	err = tx.QueryRow(
-		`SELECT l.meal_id FROM rz_meal_log l
+		`SELECT l.meal_id, l.parent_log_id,
+		        COALESCE((SELECT pm.name FROM rz_meal_log pl
+		                  JOIN rz_meals pm ON pm.id = pl.meal_id
+		                  WHERE pl.id = l.parent_log_id), '')
+		 FROM rz_meal_log l
 		 JOIN rz_meals m ON m.id = l.meal_id
 		 WHERE l.id = $1 AND m.user_id = $2`,
 		logID, uid,
-	).Scan(&mealIDOfEntry)
+	).Scan(&mealIDOfEntry, &parentLogID, &parentMealName)
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "entry not found")
 		return
@@ -938,8 +1370,15 @@ func (h *MealHandler) DeleteLog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "entry does not belong to this meal")
 		return
 	}
+	// A component meal was eaten as part of a bigger serving — removing it
+	// alone would desynchronise the products of that serving.
+	if parentLogID != nil {
+		writeErr(w, http.StatusConflict, fmt.Sprintf(
+			"this try is part of %q — remove that serving instead", parentMealName))
+		return
+	}
 
-	if err := deleteMealEvent(tx, uid, mealID, logID); err != nil {
+	if err := deleteMealEvent(tx, uid, logID); err != nil {
 		log.Printf("[MEALS] delete log: %v", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return

@@ -941,6 +941,16 @@ html, body {
   font-size: 11.5px;
   white-space: nowrap;
 }
+/* A meal used as a component is tinted differently than a plain product. */
+.meal-item-sub { background: #EAF4FF; }
+.meal-item-sub-tag {
+  margin-left: 4px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #4A7DA8;
+}
 .meal-count-line {
   margin-top: 4px;
   font-size: 11.5px;
@@ -984,6 +994,7 @@ html, body {
 .meal-pick-row.active { background: rgba(69, 181, 172, 0.14); font-weight: 700; }
 .meal-pick-emoji { font-size: 17px; flex-shrink: 0; }
 .meal-pick-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meal-pick-meta { font-size: 11px; color: var(--muted); flex-shrink: 0; }
 .meal-pick-check { color: var(--teal-dark); font-weight: 800; }
 
 .meal-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1006,6 +1017,20 @@ html, body {
 .meal-detail-item-emoji { font-size: 18px; flex-shrink: 0; }
 .meal-detail-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meal-detail-item-go { color: var(--muted); font-weight: 700; }
+/* Component meal rows and their section headings. */
+.meal-detail-sub { background: #F1F8FF; border-color: #CFE3F5; }
+.meal-sub-badge {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #4A7DA8;
+  background: #E1EFFB;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.meal-sub-heading { margin: 14px 0 6px; font-size: 13px; color: var(--text); }
+.meal-sub-label { display: block; margin-top: 14px; }
 .recent-meal {
   font-size: 11.5px;
   color: var(--teal-dark);
