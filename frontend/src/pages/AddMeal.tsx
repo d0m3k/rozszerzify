@@ -12,12 +12,14 @@ interface Props {
   onAdded: (id: number) => void;
   /** Creates a missing product from inside the composition picker. */
   onCreateFood: (input: { name: string; category: string }) => Promise<Food>;
+  /** Name carried over from search ("Złóż z tego nowe danie"). */
+  prefillName?: string;
 }
 
 const DEFAULT_TARGET = 15;
 
-export function AddMealPage({ foods, meals, categories, onBack, onAdded, onCreateFood }: Props) {
-  const [name, setName] = useState('');
+export function AddMealPage({ foods, meals, categories, onBack, onAdded, onCreateFood, prefillName = '' }: Props) {
+  const [name, setName] = useState(prefillName);
   const [emoji, setEmoji] = useState('');
   const [notes, setNotes] = useState('');
   const [target, setTarget] = useState(String(DEFAULT_TARGET));

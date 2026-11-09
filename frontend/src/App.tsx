@@ -60,6 +60,8 @@ export function App() {
   const [tick, setTick] = useState(0);
   const [showRegister, setShowRegister] = useState(false);
   const [registerPrefill, setRegisterPrefill] = useState('');
+  // Name typed in the global search that the user wants to turn into a meal.
+  const [mealDraftName, setMealDraftName] = useState('');
   const toastTimer = useRef<number | null>(null);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
@@ -326,7 +328,7 @@ export function App() {
             categories={categories}
             onOpenDetail={(id) => go('meal', id)}
             onPlus={(m) => setMealSheetFor(m)}
-            onNew={() => go('add-meal')}
+            onNew={() => { setMealDraftName(''); go('add-meal'); }}
           />
         )}
         {page === 'add-meal' && (
@@ -335,8 +337,9 @@ export function App() {
             meals={meals}
             categories={categories}
             onBack={() => go('meals')}
-            onAdded={() => { go('meals'); refresh(); showToast('➕ Dodano danie'); }}
+            onAdded={() => { setMealDraftName(''); go('meals'); refresh(); showToast('➕ Dodano danie'); }}
             onCreateFood={handleCreateFood}
+            prefillName={mealDraftName}
           />
         )}
         {page === 'meal' && selMeal && (
@@ -372,11 +375,15 @@ export function App() {
         {page === 'search' && (
           <SearchPage
             foods={foods}
+            meals={meals}
             categories={categories}
             onBack={() => go('foods')}
             onPick={(f) => setSheetFor(f)}
+            onPlusMeal={(m) => setMealSheetFor(m)}
+            onOpenMeal={(id) => go('meal', id)}
             onQuickAdd={handleQuickAdd}
             onFullForm={() => go('add')}
+            onNewMeal={(name) => { setMealDraftName(name); go('add-meal'); }}
           />
         )}
         {page === 'add' && (
@@ -410,7 +417,7 @@ export function App() {
           <span class="nav-icon">🍲</span>
           <span>Dania</span>
         </button>
-        <button class="nav-add" onClick={() => go('search')} aria-label="szybkie dodawanie / wyszukiwanie">
+        <button class="nav-add" onClick={() => go('search')} aria-label="szybkie dodawanie i wyszukiwanie — produkty i dania">
           +
         </button>
         <button class={page === 'recent' ? 'nav-btn active' : 'nav-btn'} onClick={() => go('recent')}>

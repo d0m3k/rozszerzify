@@ -1012,6 +1012,23 @@ html, body {
 .meal-new-food .cat-hint { margin: 0; }
 
 .search-new-food { align-self: flex-start; margin: 2px 2px 10px; }
+.search-group-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 14px 2px 6px;
+}
+.search-open {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
 
 .meal-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .meal-detail-items { display: flex; flex-direction: column; gap: 6px; }
