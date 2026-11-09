@@ -84,6 +84,26 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // On-screen keyboard: phones shrink the visual viewport without resizing the
+  // layout viewport, so the scroll area keeps its full height and the last
+  // results end up hidden under the keyboard. Expose the covered height as
+  // --kb; the CSS uses it as extra bottom padding.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty('--kb', `${Math.round(kb)}px`);
+    };
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+    };
+  }, []);
+
   function go(p: Page, id = 0) {
     const hash = p === 'detail' ? `#/foods/${id}` : p === 'meal' ? `#/meals/${id}` : p === 'add-meal' ? '#/meals/new' : `#/${p}`;
     if (hash === window.location.hash) {

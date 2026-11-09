@@ -16,6 +16,8 @@
   --radius: 16px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --nav-h: 64px;
+  /* Height covered by the on-screen keyboard (set from visualViewport). */
+  --kb: 0px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -45,7 +47,9 @@ html, body {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+  /* max(): the keyboard is always taller than the nav, so with the keyboard
+     open the padding follows the keyboard instead of the (covered) nav. */
+  padding-bottom: calc(var(--safe-bottom) + 12px + max(var(--nav-h), var(--kb)));
 }
 
 .page { padding: 4px 14px 16px; animation: fadein 0.18s ease; }
@@ -704,6 +708,8 @@ html, body {
   align-items: flex-end;
   justify-content: center;
   z-index: 50;
+  /* Lift the sheet above the on-screen keyboard (e.g. while typing a note). */
+  padding-bottom: var(--kb);
   animation: fadein 0.15s ease;
 }
 .sheet {
@@ -770,6 +776,15 @@ html, body {
 
 /* === Search (quick add/log) === */
 .search-bar { display: flex; gap: 10px; align-items: center; padding: 6px 0 12px; }
+/* Keep the input (and its filter) on screen while the results scroll. */
+.search-page .search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding-top: 8px;
+  margin-top: -8px;
+}
 .search-input { flex: 1; }
 .search-hint { padding: 22px 6px; line-height: 1.5; }
 .quick-add { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }

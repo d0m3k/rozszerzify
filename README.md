@@ -36,11 +36,12 @@ co mu najbardziej podchodzi.
   pośrednio), a limity pilnują rozdmuchiwania: głębokość 3 poziomy, max 20
   bezpośrednich składników, 40 produktów i 24 dań po rozwinięciu
 - **🏆 Ranking smaków** — średnia ocen, medale dla top 3
-- **🔍 Wielki „+” (wyszukiwanie) obsługuje dania i produkty** — wpisana fraza
-  szuka po nazwach produktów, nazwach dań **i składnikach** dań („marchewka”
-  znajdzie „kasza z marchewką”); tapnięcie wiersza loguje próbę (+1) dania,
-  strzałka „›” otwiera jego ustawienia, a przy braku trafienia można od razu
-  dodać produkt albo złożyć nowe danie z wpisaną nazwą
+- **🔍 Wielki „+” (wyszukiwanie) obsługuje dania i produkty** — najpierw
+  produkty (jak dotąd), pod nimi dania; fraza szuka po nazwach produktów,
+  nazwach dań **i składnikach** dań („marchewka” znajdzie „kasza z
+  marchewką”); tapnięcie wiersza loguje próbę (+1), strzałka „›” otwiera
+  ustawienia dania, a przy braku trafienia można od razu dodać produkt albo
+  złożyć nowe danie z wpisaną nazwą
 - **Historia prób** — kiedy, z jaką notatką i oceną
 - **🕒 Ostatnie próby** — jeden wspólny dziennik wszystkich produktów:
   pogrupowany po dniach, z godziną, oceną i notatką; tapnięcie wpisu otwiera

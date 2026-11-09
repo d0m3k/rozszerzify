@@ -119,6 +119,7 @@ export function SearchPage({
   const exact = query !== '' && foods.some((f) => normalize(f.name) === nq);
   const exactMeal = query !== '' && meals.some((m) => normalize(m.name) === nq);
   const showAdd = query !== '' && !exact;
+  const noHits = matches.length === 0 && mealMatches.length === 0;
 
   function toggleCat(name: string) {
     if (cats.includes(name)) {
@@ -153,18 +154,22 @@ export function SearchPage({
           <button class="quick-add-btn" onClick={() => onQuickAdd(q.trim(), cats)}>
             ➕ Dodaj „{q.trim()}”
           </button>
-          <div class="chip-grid">
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                class={cats.includes(c.name) ? 'chip chip-active chip-sm' : 'chip chip-sm'}
-                onClick={() => toggleCat(c.name)}
-                title={categoryLabel(c.name)}
-              >
-                {categoryEmoji(c.name, categories)}
-              </button>
-            ))}
-          </div>
+          {/* Categories only when nothing matched: with hits on screen the
+              chips would push the results under the keyboard. */}
+          {noHits && (
+            <div class="chip-grid">
+              {categories.map((c) => (
+                <button
+                  key={c.id}
+                  class={cats.includes(c.name) ? 'chip chip-active chip-sm' : 'chip chip-sm'}
+                  onClick={() => toggleCat(c.name)}
+                  title={categoryLabel(c.name)}
+                >
+                  {categoryEmoji(c.name, categories)}
+                </button>
+              ))}
+            </div>
+          )}
           <button class="link-btn" onClick={onFullForm}>
             pełny formularz (notatki, cel) →
           </button>
@@ -192,32 +197,23 @@ export function SearchPage({
 
       {!query && meals.length > 0 && (
         <>
+          <button class="link-btn search-new-food" onClick={() => onNewMeal('')}>
+            ＋ Złóż nowe danie
+          </button>
           <h3 class="search-group-title">🍲 Dania</h3>
           <div class="search-results">
             {meals.map((m) => (
               <MealRow key={m.id} m={m} cats={categories} onPlus={onPlusMeal} onOpen={onOpenMeal} />
             ))}
           </div>
-          <button class="link-btn search-new-food" onClick={() => onNewMeal('')}>
-            ＋ Złóż nowe danie
-          </button>
         </>
       )}
 
-      {query && mealMatches.length > 0 && (
-        <>
-          <h3 class="search-group-title">🍲 Dania</h3>
-          <div class="search-results">
-            {mealMatches.map((m) => (
-              <MealRow key={m.id} m={m} cats={categories} onPlus={onPlusMeal} onOpen={onOpenMeal} />
-            ))}
-          </div>
-        </>
-      )}
-
+      {/* Products first and only labelled when meals share the screen — the
+          familiar flow stays exactly as before for product searches. */}
       {query && matches.length > 0 && (
         <>
-          <h3 class="search-group-title">🍽️ Produkty</h3>
+          {mealMatches.length > 0 && <h3 class="search-group-title">🍽️ Produkty</h3>}
           <div class="search-results">
             {matches.map((f) => (
               <div class="search-row" key={f.id} onClick={() => onPick(f)}>
@@ -234,6 +230,17 @@ export function SearchPage({
                   {f.tries >= f.target ? '🎉' : `${f.tries}/${f.target}`}
                 </span>
               </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {query && mealMatches.length > 0 && (
+        <>
+          <h3 class="search-group-title">🍲 Dania</h3>
+          <div class="search-results">
+            {mealMatches.map((m) => (
+              <MealRow key={m.id} m={m} cats={categories} onPlus={onPlusMeal} onOpen={onOpenMeal} />
             ))}
           </div>
         </>
