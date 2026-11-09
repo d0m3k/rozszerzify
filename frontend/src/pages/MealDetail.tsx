@@ -32,9 +32,11 @@ interface Props {
   onDelete: () => void;
   onOpenFood: (id: number) => void;
   onOpenMeal: (id: number) => void;
+  /** Creates a missing product from inside the composition picker. */
+  onCreateFood: (input: { name: string; category: string }) => Promise<Food>;
 }
 
-export function MealDetailPage({ meal, foods, meals, categories, onBack, onPlus, onRemoveLog, onSave, onDelete, onOpenFood, onOpenMeal }: Props) {
+export function MealDetailPage({ meal, foods, meals, categories, onBack, onPlus, onRemoveLog, onSave, onDelete, onOpenFood, onOpenMeal, onCreateFood }: Props) {
   const st = mealStatus(meal);
   const [log, setLog] = useState<LogEntry[] | null>(null);
   const [name, setName] = useState(meal.name);
@@ -201,7 +203,7 @@ export function MealDetailPage({ meal, foods, meals, categories, onBack, onPlus,
         </p>
 
         <span class="field-label">Produkty</span>
-        <MealFoodPicker foods={foods} categories={categories} selected={items} onChange={setItems} />
+        <MealFoodPicker foods={foods} categories={categories} selected={items} onChange={setItems} onCreateFood={onCreateFood} />
 
         <span class="field-label meal-sub-label">Dania-składniki</span>
         <MealSubMealPicker meals={meals} mealId={meal.id} selected={subMeals} onChange={setSubMeals} />

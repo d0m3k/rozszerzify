@@ -23,7 +23,12 @@ co mu najbardziej podchodzi.
   z marchewką”); jedno tapnięcie **+1** przy daniu zwiększa licznik dania
   **i każdego produktu w składzie**, a historia produktu oznacza próbę jako
   „🍲 próba z dania «…»”. Skład dania widać na liście dań, w szczegółach oraz
-  na karcie produktu („składnik dań: …”)
+  na karcie produktu („składnik dań: …”). Brakującego produktu nie trzeba
+  dodawać osobno: w pickerze składu jest **„＋ Nowy produkt”** (nazwa + kategoria),
+  który od razu trafia na listę i do składu — formularz dania zostaje wypełniony
+- **➕ Dodanie produktu bez próby** — „＋ Nowy produkt” na liście jedzenia oraz
+  link w wyszukiwaniu prowadzą do pełnego formularza, więc dodanie produktu nie
+  wymaga zapisania żadnej próby
 - **🍲 Dania z dań** — danie może zawierać inne danie („zupka na rosole”):
   zjedzenie zupki daje +1 zupce, rosołowi i wszystkim produktom obu dań.
   Ten sam produkt w kilku miejscach składu liczy się **raz** (jedna próba na

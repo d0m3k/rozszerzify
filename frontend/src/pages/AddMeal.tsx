@@ -10,11 +10,13 @@ interface Props {
   categories: Category[];
   onBack: () => void;
   onAdded: (id: number) => void;
+  /** Creates a missing product from inside the composition picker. */
+  onCreateFood: (input: { name: string; category: string }) => Promise<Food>;
 }
 
 const DEFAULT_TARGET = 15;
 
-export function AddMealPage({ foods, meals, categories, onBack, onAdded }: Props) {
+export function AddMealPage({ foods, meals, categories, onBack, onAdded, onCreateFood }: Props) {
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
   const [notes, setNotes] = useState('');
@@ -88,7 +90,7 @@ export function AddMealPage({ foods, meals, categories, onBack, onAdded }: Props
 
         <div class="field">
           <span class="field-label">Z czego składa się danie? (wybierz produkty)</span>
-          <MealFoodPicker foods={foods} categories={categories} selected={items} onChange={setItems} />
+          <MealFoodPicker foods={foods} categories={categories} selected={items} onChange={setItems} onCreateFood={onCreateFood} />
         </div>
 
         <div class="field">

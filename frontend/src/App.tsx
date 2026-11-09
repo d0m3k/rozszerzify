@@ -257,6 +257,16 @@ export function App() {
     }
   }
 
+  // Creating a product from inside a meal's composition picker: the picker
+  // needs the created food back so it can select it immediately.
+  async function handleCreateFood(input: { name: string; category: string }): Promise<Food> {
+    const created = await api.createFood({ name: input.name, categories: [input.category] });
+    setFoods((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name, 'pl')));
+    refresh();
+    showToast(`➕ Dodano produkt „${created.name}” do składu`);
+    return created;
+  }
+
   if (!auth) {
     return (
       <div class="app-container">
@@ -305,6 +315,7 @@ export function App() {
             categories={categories}
             onOpenDetail={(id) => go('detail', id)}
             onPlus={(f) => setSheetFor(f)}
+            onNew={() => go('add')}
             onRenameCategory={handleRenameCategory}
             onDeleteCategory={handleDeleteCategory}
           />
@@ -325,6 +336,7 @@ export function App() {
             categories={categories}
             onBack={() => go('meals')}
             onAdded={() => { go('meals'); refresh(); showToast('➕ Dodano danie'); }}
+            onCreateFood={handleCreateFood}
           />
         )}
         {page === 'meal' && selMeal && (
@@ -340,6 +352,7 @@ export function App() {
             onDelete={() => handleDeleteMeal(selMeal.id)}
             onOpenFood={(id) => go('detail', id)}
             onOpenMeal={(id) => go('meal', id)}
+            onCreateFood={handleCreateFood}
           />
         )}
         {page === 'ranking' && (

@@ -22,6 +22,8 @@ interface Props {
   categories: Category[];
   onOpenDetail: (id: number) => void;
   onPlus: (food: Food) => void;
+  /** Plain "add a product" without recording a try. */
+  onNew: () => void;
   onRenameCategory: (id: number, name: string, emoji: string) => Promise<void>;
   onDeleteCategory: (id: number) => Promise<void>;
 }
@@ -85,7 +87,7 @@ function FoodRow({ f, cats, showCat, onOpen, onPlus }: { f: Food; cats: Category
   );
 }
 
-export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onRenameCategory, onDeleteCategory }: Props) {
+export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onNew, onRenameCategory, onDeleteCategory }: Props) {
   const [sort, setSort] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) as SortMode) || 'priorytet');
   // Categories the parent folded away in the "Kategorie" view (persisted, so
   // the list keeps the shape they left it in).
@@ -152,6 +154,15 @@ export function FoodsPage({ foods, stats, categories, onOpenDetail, onPlus, onRe
 
   return (
     <div class="page">
+      <div class="meals-head">
+        <div>
+          <h2 class="page-title">🍽️ Jedzenie</h2>
+        </div>
+        <button class="btn-primary meals-new" onClick={onNew}>
+          ＋ Nowy produkt
+        </button>
+      </div>
+
       <div class="stats-row">
         {stats && (
           <>

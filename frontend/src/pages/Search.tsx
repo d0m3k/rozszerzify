@@ -95,6 +95,12 @@ export function SearchPage({ foods, categories, onBack, onPick, onQuickAdd, onFu
         </div>
       )}
 
+      {!showAdd && (
+        <button class="link-btn search-new-food" onClick={onFullForm}>
+          ＋ Nowy produkt — bez zapisywania próby
+        </button>
+      )}
+
       {!query && (
         <p class="search-hint muted">
           Szybkie logowanie: wpisz lub wybierz jedzenie poniżej, potem tylko ocena. 🍼
