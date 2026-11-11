@@ -46,7 +46,9 @@ export default defineConfig({
         theme_color: '#FF8E72',
         background_color: '#FFF8F0',
         display: 'standalone',
-        orientation: 'portrait',
+        // Phones stay portrait in practice; tablets and installed desktop
+        // windows are free to use whichever shape the user prefers.
+        orientation: 'any',
         start_url: `/?v=${BUILD_HASH}`,
         scope: '/',
         icons: [

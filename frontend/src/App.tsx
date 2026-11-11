@@ -317,7 +317,7 @@ export function App() {
   const selMeal = meals.find((m) => m.id === selId);
 
   return (
-    <div class="app-container">
+    <div class="app-container app-logged">
       <header class="topbar">
         <div class="topbar-left">
           <span class="topbar-logo">🥣</span>

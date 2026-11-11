@@ -1087,3 +1087,214 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ==================================================================
+   Responsive layout — tablet & desktop
+   ------------------------------------------------------------------
+   Mobile first: nothing above this block depends on the viewport, so
+   phones keep exactly the layout they have today. Wide screens add:
+     ≥700px  tablet  — wider shell, card lists flow into columns
+     ≥960px  desktop — the bottom bar becomes a left sidebar, detail
+                       pages split in two, the rating sheet a dialog
+   ================================================================== */
+
+/* Two-column detail pages. On phones the wrappers vanish (display: contents)
+   so the sections keep their original order and spacing. */
+.detail-main,
+.detail-side { display: contents; }
+
+/* Keyboard users only — phones have no focus ring to show. */
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+/* Hover affordances for mouse/trackpad (touch keeps the :active feedback). */
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary:hover:not(:disabled) { background: var(--peach-dark); }
+  .btn-ghost:hover, .btn-back:hover { border-color: #E3CDBA; background: #FFFDFA; }
+  .btn-danger:hover { background: rgba(255, 107, 107, 0.08); }
+  .sort-btn:hover { border-color: var(--teal); color: var(--teal-dark); }
+  .food-row:hover, .rank-row:hover, .search-row:hover {
+    border-color: #E7D3C0;
+    box-shadow: 0 4px 16px rgba(90, 60, 30, 0.12);
+  }
+  .recent-row:hover, .meal-detail-item:hover, .meal-pick-row:hover:not(.active) { background: #F8EFE3; }
+  .chip:hover, .unrated-chip:hover, .emoji-chip:hover { border-color: #DFC9B5; }
+  .btn-plus:hover, .counter-plus:hover { background: linear-gradient(160deg, var(--teal-dark), #2F8A83); }
+  .nav-btn:hover { color: var(--teal-dark); }
+  .group-title:hover, .group-edit:hover, .log-edit-btn:hover { color: var(--text); }
+  .link-btn:hover { text-decoration: underline; }
+}
+
+/* ── Tablet ───────────────────────────────────────────────────────── */
+@media (min-width: 700px) {
+  .app-container { max-width: 840px; }
+  .page { padding: 6px 20px 18px; }
+
+  /* Logged-out screens stay a centred card instead of a wide empty shell. */
+  .app-container:not(.app-logged) { max-width: 460px; }
+  .auth-form {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 22px;
+    box-shadow: var(--shadow);
+  }
+
+  /* Stats stop scrolling sideways — wrap them instead (no thumb to swipe). */
+  .stats-row { flex-wrap: wrap; overflow: visible; }
+  .stat-chip { flex: 1 1 132px; min-width: 0; }
+  .stat-chip b { font-size: 18px; white-space: nowrap; }
+
+  /* The bottom bar grows with the shell instead of floating as a 480px dock. */
+  .bottom-nav { max-width: 840px; }
+
+  .sort-bar, .sort-legend { max-width: 620px; }
+
+  /* Card lists: one narrow strip → a grid of cards. */
+  .food-list,
+  .food-group,
+  .recent-list,
+  .search-results {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 10px;
+  }
+
+  .search-bar { max-width: 720px; }
+  .food-list > .food-row,
+  .food-group > .food-row { margin-bottom: 0; }
+  .food-group > .group-head,
+  .food-group > .cat-edit,
+  .food-group > .group-collapsed-hint { grid-column: 1 / -1; }
+
+  /* Wider cards: keep the name next to its icon instead of centred in the
+     free space that space-between used to distribute. */
+  .food-name { flex: 1 1 auto; min-width: 0; }
+
+  /* Meals & ranking: the page itself becomes the card grid. */
+  .page-meals,
+  .page-ranking {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 10px;
+  }
+  .page-meals > .meals-head,
+  .page-meals > .empty-state,
+  .page-ranking > :not(.rank-row) { grid-column: 1 / -1; }
+  .page-meals > .meal-row,
+  .page-ranking > .rank-row { margin-bottom: 0; }
+
+  /* Forms are still read top to bottom — just not 840px wide. */
+  .page-form .card { max-width: 680px; }
+
+  .sheet { max-width: 560px; }
+  .install-prompt { max-width: 560px; }
+}
+
+/* ── Desktop ──────────────────────────────────────────────────────── */
+@media (min-width: 960px) {
+  body { background: #F3E9DE; }
+
+  .app-container { max-width: 1180px; }
+
+  /* Top bar over a scrolling content area, navigation down the left. */
+  .app-logged {
+    display: grid;
+    grid-template-columns: 224px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: 'nav topbar' 'nav content';
+    box-shadow: 0 0 60px rgba(90, 60, 30, 0.1);
+  }
+
+  .topbar {
+    grid-area: topbar;
+    position: static;
+    padding: 18px 28px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-title { font-size: 21px; }
+
+  .app-content {
+    grid-area: content;
+    padding: 20px 28px 40px;
+    scrollbar-width: thin;
+    scrollbar-color: #E1CDBA transparent;
+  }
+  .page { padding: 0; }
+
+  /* Bottom bar → sidebar rail. */
+  .bottom-nav {
+    grid-area: nav;
+    position: static;
+    left: auto;
+    bottom: auto;
+    transform: none;
+    height: auto;
+    width: auto;
+    max-width: none;
+    padding: 18px 12px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 4px;
+    background: var(--card);
+    border-top: none;
+    border-right: 1px solid var(--border);
+    backdrop-filter: none;
+  }
+  .nav-btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    min-width: 0;
+    padding: 0 12px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
+  .nav-btn.active { background: rgba(69, 181, 172, 0.12); }
+  .nav-icon { font-size: 18px; }
+
+  /* The floating “+” becomes the sidebar's primary action. */
+  .nav-add {
+    order: -1;
+    width: 100%;
+    height: 46px;
+    margin: 0 0 12px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .nav-add:active { transform: none; }
+  .nav-add::after { content: 'Dodaj / szukaj'; font-size: 14px; font-weight: 700; }
+
+  /* Detail pages: counter + settings on the left, history on the right. */
+  .page-detail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  .page-detail > .detail-header { grid-column: 1 / -1; }
+  .page-detail > .detail-main,
+  .page-detail > .detail-side {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  .page-detail .card,
+  .page-detail .detail-counter-card { margin-bottom: 0; }
+
+  /* Rating sheet → centred dialog with the four ratings side by side. */
+  .sheet-overlay { align-items: center; padding: 24px; }
+  .sheet { max-width: 540px; border-radius: 22px; padding: 20px 22px; }
+  .sheet-handle { display: none; }
+  .rating-grid { grid-template-columns: repeat(4, 1fr); }
+
+  .toast { bottom: 24px; }
+  .install-prompt { bottom: 24px; max-width: 520px; }
+}

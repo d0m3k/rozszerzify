@@ -10,7 +10,7 @@ interface Props {
 
 export function MealsPage({ meals, categories, onOpenDetail, onPlus, onNew }: Props) {
   return (
-    <div class="page">
+    <div class="page page-meals">
       <div class="meals-head">
         <div>
           <h2 class="page-title">🍲 Dania</h2>

@@ -65,6 +65,10 @@ co mu najbardziej podchodzi.
   zapisywanie prób (+1, edycja) nie wysyła już nic — te same kamienie milowe
   (pierwsza próba, cel, „✓ OK”) widać od razu w aplikacji
 - **PWA** — instalacja na ekran główny, offline shell
+- **🖥️ Układ responsywny** — na telefonie wszystko działa jak dotąd (dolna belka,
+  ocena wysuwana od dołu); tablet i desktop dostają szerszy shell: karty produktów
+  i dań w kilku kolumnach, nawigacja jako lewa belka, karta produktu/dania w dwóch
+  kolumnach (licznik i ustawienia obok historii), a ocena jako okno na środku ekranu
 - **Konta**: wielo-kontowe — pierwszy `krzysio` (hasło z `SEED_PASSWORD`), kolejne przez **samo-rejestrację w aplikacji** (odpowiednik flow z rybaspotting: Cloudflare Turnstile + data urodzenia malucha, powiadomienie Pushover przy rejestracji) albo przez `-new-user` na serwerze — każdy maluch ma własną listę produktów, próby i daty
 
 ## Szybki start (lokalnie)

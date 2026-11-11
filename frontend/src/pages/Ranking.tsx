@@ -13,7 +13,7 @@ export function RankingPage({ ranking, loading, onOpenDetail }: Props) {
   const withoutRatings = ranking.filter((r) => r.rating_count === 0);
 
   return (
-    <div class="page">
+    <div class="page page-ranking">
       <h2 class="page-title">🏆 Ranking — co zjada najlepiej</h2>
       <p class="page-subtitle">
         Które jedzenie maluch zjada z największym apetytem? Średnia z ocen każdej próby.

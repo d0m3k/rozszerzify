@@ -59,7 +59,7 @@ export function AddMealPage({ foods, meals, categories, onBack, onAdded, onCreat
   }
 
   return (
-    <div class="page">
+    <div class="page page-form">
       <div class="detail-header">
         <button class="btn-ghost btn-back" onClick={onBack}>
           ← Wróć

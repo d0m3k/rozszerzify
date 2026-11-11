@@ -56,7 +56,7 @@ export function AddFoodPage({ categories, onBack, onAdded, onCreateCategory }: P
   }
 
   return (
-    <div class="page">
+    <div class="page page-form">
       <div class="detail-header">
         <button class="btn-ghost btn-back" onClick={onBack}>
           ← Wróć
